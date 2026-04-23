@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body { @apply bg-black text-zinc-50 antialiased; font-family: 'Inter', system-ui, sans-serif; }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { @apply bg-transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-zinc-700 rounded-full; }
+}
+
+@layer components {
+  .card { @apply bg-surface border border-border rounded-lg p-5; }
+  .card-sm { @apply bg-surface border border-border rounded-lg p-4; }
+  .label { @apply text-xs font-semibold tracking-widest text-zinc-500 uppercase; }
+  .btn { @apply inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold tracking-wide rounded-md transition-all duration-150 cursor-pointer border border-transparent; }
+  .btn-primary { @apply btn bg-purple text-white hover:bg-purple-dark; }
+  .btn-secondary { @apply btn bg-surface-2 text-zinc-300 border-border hover:border-zinc-600 hover:text-zinc-50; }
+  .input { @apply w-full bg-surface-2 border border-border rounded-md px-3 py-2 text-sm text-zinc-50 placeholder-zinc-600 focus:outline-none focus:border-purple focus:ring-1 focus:ring-purple transition-colors duration-150; }
+  .select { @apply input cursor-pointer; }
+  .section-title { @apply text-xs font-semibold tracking-widest text-zinc-500 uppercase mb-3; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in-up { animation: fadeInUp 0.2s ease forwards; }
