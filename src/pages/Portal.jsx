@@ -1,11 +1,23 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
-const REQUEST_TYPES = [
-  { value: 'website_change', label: 'Website Change', desc: 'Page edits, new sections, copy updates', requiresUrl: true },
-  { value: 'content_feedback', label: 'Content Feedback', desc: 'GMB posts, blog articles, social content', requiresUrl: false },
-  { value: 'billing', label: 'Billing / Account', desc: 'Invoice queries, plan changes', requiresUrl: false },
-  { value: 'question', label: 'General Question', desc: 'Anything else', requiresUrl: false },
+const TRADE_REQUEST_TYPES = [
+  { value: 'website_change',   label: 'Website Change',    desc: 'Page edits, new sections, copy updates',  requiresUrl: true },
+  { value: 'content_feedback', label: 'Content Feedback',  desc: 'GMB posts, blog articles, social content' },
+  { value: 'billing',          label: 'Billing / Account', desc: 'Invoice queries, plan changes' },
+  { value: 'question',         label: 'General Question',  desc: 'Anything else' },
+]
+const PROPERTY_REQUEST_TYPES = [
+  { value: 'listing_add',    label: 'Add a Listing',    desc: 'New property to publish on the site',       requiresAddress: true },
+  { value: 'listing_remove', label: 'Remove a Listing', desc: 'Sold or off-market — take it down',         requiresAddress: true },
+  { value: 'website_change', label: 'Site Change',      desc: 'Page edits, layout updates, new sections',  requiresUrl: true },
+  { value: 'billing',        label: 'Billing / Account', desc: 'Invoice queries, plan changes' },
+  { value: 'question',       label: 'General Question',  desc: 'Anything else' },
+]
+const ALL_REQUEST_TYPES = [
+  ...TRADE_REQUEST_TYPES,
+  { value: 'listing_add',    label: 'Add a Listing' },
+  { value: 'listing_remove', label: 'Remove a Listing' },
 ]
 
 const STATUS_STYLES = {
@@ -35,16 +47,19 @@ function statusStyle(s) {
 }
 
 // ─── REQUEST MODAL ────────────────────────────────────────────────────────────
-function RequestModal({ client, openRequests, onSubmit, onClose }) {
-  const [type, setType] = useState('website_change')
+function RequestModal({ client, siteType, openRequests, onSubmit, onClose }) {
+  const requestTypes = siteType === 'property' ? PROPERTY_REQUEST_TYPES : TRADE_REQUEST_TYPES
+  const [type, setType] = useState(requestTypes[0].value)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [pageUrl, setPageUrl] = useState('')
+  const [address, setAddress] = useState('')
+  const [files, setFiles] = useState([])
   const [urgent, setUrgent] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  const selectedType = REQUEST_TYPES.find(t => t.value === type)
+  const selectedType = requestTypes.find(t => t.value === type)
   const existingOfType = openRequests.find(r => r.type === type && r.status !== 'done')
   const descLen = description.trim().length
 
@@ -53,14 +68,31 @@ function RequestModal({ client, openRequests, onSubmit, onClose }) {
     if (!title.trim()) { setError('Please add a brief title.'); return }
     if (descLen < 50) { setError('Please describe your request in more detail (at least 50 characters).'); return }
     if (selectedType.requiresUrl && !pageUrl.trim()) { setError('Please include the page URL for this change.'); return }
+    if (selectedType.requiresAddress && !address.trim()) { setError('Please include the property address.'); return }
     if (existingOfType) { setError('You already have an open request of this type. Please wait for it to be resolved first.'); return }
 
     setSubmitting(true)
     try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token
+
+      const uploadedUrls = []
+      for (const file of files) {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+        const path = `${client.id}/${Date.now()}_${safeName}`
+        const { data: uploadData } = await supabase.storage
+          .from('request-attachments').upload(path, file, { contentType: file.type })
+        if (uploadData) {
+          const { data: { publicUrl } } = supabase.storage
+            .from('request-attachments').getPublicUrl(uploadData.path)
+          uploadedUrls.push(publicUrl)
+        }
+      }
+
+      const ref = selectedType?.requiresUrl ? pageUrl.trim() : selectedType?.requiresAddress ? address.trim() : null
       const res = await fetch('/api/submit-request', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` },
-        body: JSON.stringify({ client_id: client.id, type, title: title.trim(), description: description.trim(), page_url: pageUrl.trim() || null, priority: urgent ? 'urgent' : 'normal' }),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ client_id: client.id, type, title: title.trim(), description: description.trim(), page_url: ref || null, priority: urgent ? 'urgent' : 'normal', attachments: uploadedUrls }),
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error || 'Something went wrong.'); setSubmitting(false); return }
@@ -86,7 +118,7 @@ function RequestModal({ client, openRequests, onSubmit, onClose }) {
           <div>
             <p className="label block mb-2">Request type</p>
             <div className="grid grid-cols-2 gap-2">
-              {REQUEST_TYPES.map(t => {
+              {requestTypes.map(t => {
                 const hasOpen = openRequests.find(r => r.type === t.value && r.status !== 'done')
                 return (
                   <button key={t.value} onClick={() => setType(t.value)}
@@ -115,6 +147,13 @@ function RequestModal({ client, openRequests, onSubmit, onClose }) {
               <p className="text-[10px] text-zinc-600 mt-1">Paste the URL of the page you'd like changed.</p>
             </div>
           )}
+          {selectedType?.requiresAddress && (
+            <div>
+              <label className="label block mb-1.5">Property address</label>
+              <input className="input" placeholder="e.g. 42 High Street, Bristol, BS1 1AB"
+                value={address} onChange={e => setAddress(e.target.value)} />
+            </div>
+          )}
 
           <div>
             <label className="label block mb-1.5">
@@ -124,8 +163,33 @@ function RequestModal({ client, openRequests, onSubmit, onClose }) {
               </span>
             </label>
             <textarea className="input resize-none text-sm" rows={4}
-              placeholder="Describe exactly what you need. The more detail you give, the faster we can get it done."
+              placeholder={
+                type === 'listing_add'    ? "Describe the property — bedrooms, price, key features, anything to include on the site." :
+                type === 'listing_remove' ? "Confirm which property to remove and any additional details (e.g. sold, off market)." :
+                "Describe exactly what you need. The more detail you give, the faster we can get it done."
+              }
               value={description} onChange={e => setDescription(e.target.value)} />
+          </div>
+
+          <div>
+            <label className="label block mb-1.5">
+              Attachments
+              <span className="ml-1.5 text-zinc-700 font-normal normal-case">optional · images or videos · max 5</span>
+            </label>
+            <input type="file" multiple accept="image/*,video/*"
+              onChange={e => setFiles(Array.from(e.target.files).slice(0, 5))}
+              className="w-full text-xs text-zinc-500 cursor-pointer file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:bg-zinc-800 file:text-zinc-300 hover:file:bg-zinc-700 transition-colors" />
+            {files.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {files.map((f, i) => (
+                  <div key={i} className="flex items-center gap-1.5 text-[10px] bg-zinc-800 text-zinc-400 px-2 py-1 rounded-lg">
+                    <span>{f.name.length > 24 ? f.name.slice(0, 24) + '…' : f.name}</span>
+                    <button type="button" onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
+                      className="text-zinc-600 hover:text-red-400 transition-colors leading-none">×</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg border border-border hover:border-zinc-700 transition-colors">
@@ -477,7 +541,7 @@ export default function Portal({ session }) {
       </main>
 
       {showModal && (
-        <RequestModal client={client} openRequests={openRequests} onSubmit={handleSubmit} onClose={() => setShowModal(false)} />
+        <RequestModal client={client} siteType={client.site_type || 'trade'} openRequests={openRequests} onSubmit={handleSubmit} onClose={() => setShowModal(false)} />
       )}
       {showDetails && profile && (
         <UpdateDetailsModal
@@ -491,7 +555,7 @@ export default function Portal({ session }) {
 }
 
 function RequestRow({ r }) {
-  const type = REQUEST_TYPES.find(t => t.value === r.type)
+  const type = ALL_REQUEST_TYPES.find(t => t.value === r.type)
   const statusColor = r.status === 'done' ? 'text-emerald-400' : r.status === 'in_progress' ? 'text-blue-400' : 'text-amber-400'
   const statusLabel = r.status === 'done' ? 'Resolved' : r.status === 'in_progress' ? 'In progress' : 'Open'
 

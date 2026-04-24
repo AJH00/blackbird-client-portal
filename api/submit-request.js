@@ -10,6 +10,8 @@ const NOTION_DB_ID = process.env.NOTION_PROJECTS_DB_ID
 
 const ASSIGNEES = {
   website_change:   'Gabriel',
+  listing_add:      'Gabriel',
+  listing_remove:   'Gabriel',
   content_feedback: 'Tayla',
   billing:          'Adin',
   question:         'Adin',
@@ -27,10 +29,10 @@ export default async function handler(req, res) {
   const { data: profile } = await supabase.from('profiles').select('client_id').eq('id', user.id).single()
   if (!profile?.client_id) return res.status(403).json({ error: 'No client account linked' })
 
-  const { client_id, type, title, description, page_url, priority } = req.body
+  const { client_id, type, title, description, page_url, priority, attachments } = req.body
   if (profile.client_id !== client_id) return res.status(403).json({ error: 'Forbidden' })
 
-  const VALID_TYPES = ['website_change', 'content_feedback', 'billing', 'question']
+  const VALID_TYPES = ['website_change', 'content_feedback', 'billing', 'question', 'listing_add', 'listing_remove']
   if (!VALID_TYPES.includes(type)) return res.status(400).json({ error: 'Invalid type' })
   if (!title?.trim() || !description?.trim()) return res.status(400).json({ error: 'Title and description required' })
   if (description.trim().length < 50) return res.status(400).json({ error: 'Description too short' })
@@ -53,22 +55,26 @@ export default async function handler(req, res) {
   const { data: request, error: insertErr } = await supabase.from('client_requests').insert({
     client_id, type, title: title.trim(), description: description.trim(),
     page_url: page_url || null, priority: priority || 'normal', status: 'open',
+    attachments: Array.isArray(attachments) && attachments.length ? attachments : null,
   }).select().single()
   if (insertErr) return res.status(500).json({ error: insertErr.message })
 
   // Create task
   const { data: client } = await supabase.from('clients').select('name').eq('id', client_id).single()
+  const refLabel = ['listing_add', 'listing_remove'].includes(type) ? 'Address' : 'Page'
+  const attachNote = Array.isArray(attachments) && attachments.length
+    ? `\n\nAttachments:\n${attachments.join('\n')}` : ''
   await supabase.from('tasks').insert({
     text: `[${client?.name}] ${title.trim()}`,
     assignee: ASSIGNEES[type] || 'Adin',
     priority: priority === 'urgent' ? 'High' : 'Medium',
     status: 'Todo',
-    description: `${description.trim()}${page_url ? `\n\nPage: ${page_url}` : ''}`,
+    description: `${description.trim()}${page_url ? `\n\n${refLabel}: ${page_url}` : ''}${attachNote}`,
     client_id,
   })
 
-  // Notion — only for website changes
-  if (type === 'website_change' && NOTION_TOKEN && NOTION_DB_ID) {
+  // Notion — for website changes and listing additions
+  if (['website_change', 'listing_add'].includes(type) && NOTION_TOKEN && NOTION_DB_ID) {
     await fetch('https://api.notion.com/v1/pages', {
       method: 'POST',
       headers: {
