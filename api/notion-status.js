@@ -34,6 +34,7 @@ export default async function handler(req, res) {
         onboarded:       p['Onboarded']?.date?.start ?? null,
         projectStart:    p['Project Start date']?.date?.start ?? null,
         projectFinished: p['Project Finished']?.date?.start ?? null,
+        filloutFormLink: p['Fillout Form Link']?.formula?.string ?? null,
       },
     })
   } catch (e) {
