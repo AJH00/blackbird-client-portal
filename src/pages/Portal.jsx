@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 const TRADE_REQUEST_TYPES = [
@@ -296,6 +296,7 @@ export default function Portal({ session }) {
   const [showDetails, setShowDetails] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [chatReq, setChatReq] = useState(null)
 
   useEffect(() => {
     async function load() {
@@ -473,14 +474,14 @@ export default function Portal({ session }) {
               <p className="text-xs text-zinc-700">Use the button above to get in touch with your account team.</p>
             </div>
           )}
-          {openRequests.length > 0 && <div className="space-y-2 mb-4">{openRequests.map(r => <RequestRow key={r.id} r={r} />)}</div>}
+          {openRequests.length > 0 && <div className="space-y-2 mb-4">{openRequests.map(r => <RequestRow key={r.id} r={r} onOpen={() => setChatReq(r)} />)}</div>}
           {resolvedRequests.length > 0 && (
             <details className="group">
               <summary className="text-[11px] text-zinc-600 cursor-pointer hover:text-zinc-400 transition-colors list-none flex items-center gap-1.5 select-none">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="group-open:rotate-90 transition-transform"><path d="M9 18l6-6-6-6"/></svg>
                 {resolvedRequests.length} resolved request{resolvedRequests.length !== 1 ? 's' : ''}
               </summary>
-              <div className="mt-2 space-y-2">{resolvedRequests.slice(0, 5).map(r => <RequestRow key={r.id} r={r} />)}</div>
+              <div className="mt-2 space-y-2">{resolvedRequests.slice(0, 5).map(r => <RequestRow key={r.id} r={r} onOpen={() => setChatReq(r)} />)}</div>
             </details>
           )}
         </div>
@@ -550,17 +551,24 @@ export default function Portal({ session }) {
           onClose={() => setShowDetails(false)}
         />
       )}
+      {chatReq && (
+        <RequestChatModal
+          req={chatReq}
+          senderName={profile?.name || 'Client'}
+          onClose={() => setChatReq(null)}
+        />
+      )}
     </div>
   )
 }
 
-function RequestRow({ r }) {
+function RequestRow({ r, onOpen }) {
   const type = ALL_REQUEST_TYPES.find(t => t.value === r.type)
   const statusColor = r.status === 'done' ? 'text-emerald-400' : r.status === 'in_progress' ? 'text-blue-400' : 'text-amber-400'
   const statusLabel = r.status === 'done' ? 'Resolved' : r.status === 'in_progress' ? 'In progress' : 'Open'
 
   return (
-    <div className="flex items-start gap-3 p-3 rounded-lg bg-zinc-900/60 border border-border/50">
+    <div onClick={onOpen} className="flex items-start gap-3 p-3 rounded-lg bg-zinc-900/60 border border-border/50 cursor-pointer hover:border-zinc-600 transition-colors">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-0.5">
           <span className="text-xs font-semibold text-zinc-200">{r.title}</span>
@@ -572,7 +580,134 @@ function RequestRow({ r }) {
         </div>
         {r.description && <p className="text-[11px] text-zinc-500 mt-1.5 leading-relaxed line-clamp-2">{r.description}</p>}
       </div>
-      <span className={`text-[10px] font-semibold flex-shrink-0 ${statusColor}`}>{statusLabel}</span>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <span className={`text-[10px] font-semibold ${statusColor}`}>{statusLabel}</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-zinc-700"><path d="M9 18l6-6-6-6"/></svg>
+      </div>
+    </div>
+  )
+}
+
+function RequestChatModal({ req, senderName, onClose }) {
+  const [messages, setMessages] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const bottomRef = useRef(null)
+
+  const type = ALL_REQUEST_TYPES.find(t => t.value === req.type)
+  const statusLabel = req.status === 'done' ? 'Resolved' : req.status === 'in_progress' ? 'In progress' : 'Open'
+  const statusColor = req.status === 'done' ? 'text-emerald-400 bg-emerald-900/20' : req.status === 'in_progress' ? 'text-blue-400 bg-blue-900/20' : 'text-amber-400 bg-amber-900/20'
+
+  useEffect(() => {
+    supabase.from('request_messages')
+      .select('*')
+      .eq('request_id', req.id)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => {
+        setMessages(data || [])
+        setLoading(false)
+      })
+  }, [req.id])
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  const send = async () => {
+    if (!text.trim() || sending) return
+    setSending(true)
+    const msg = { request_id: req.id, sender_type: 'client', sender_name: senderName, message: text.trim() }
+    const { data } = await supabase.from('request_messages').insert([msg]).select()
+    if (data?.[0]) setMessages(prev => [...prev, data[0]])
+    setText('')
+    setSending(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-[#111111] border border-border rounded-t-2xl sm:rounded-xl w-full sm:max-w-lg shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-border flex-shrink-0">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-zinc-100">{req.title}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-[10px] text-zinc-600">{type?.label}</span>
+                <span className="text-zinc-700">·</span>
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${statusColor}`}>{statusLabel}</span>
+              </div>
+            </div>
+            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 text-xl w-6 h-6 flex items-center justify-center flex-shrink-0">×</button>
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-[200px]">
+          <div className="text-center mb-4">
+            <p className="text-[10px] text-zinc-700 bg-zinc-900 inline-block px-3 py-1 rounded-full">
+              {new Date(req.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </p>
+          </div>
+          <div className="flex justify-start">
+            <div className="max-w-[80%] bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2">
+              <p className="text-xs text-zinc-300 leading-relaxed">{req.description || req.title}</p>
+              <p className="text-[10px] text-zinc-600 mt-1">You · original request</p>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center gap-2 py-2">
+              <div className="w-3 h-3 border-2 border-purple/40 border-t-purple rounded-full animate-spin" />
+              <p className="text-xs text-zinc-600">Loading messages…</p>
+            </div>
+          ) : (
+            messages.map(m => (
+              <div key={m.id} className={`flex ${m.sender_type === 'client' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[80%] rounded-xl px-3 py-2 ${
+                  m.sender_type === 'client'
+                    ? 'bg-purple/20 border border-purple/30 text-zinc-100'
+                    : 'bg-zinc-800 border border-zinc-700 text-zinc-200'
+                }`}>
+                  <p className="text-xs leading-relaxed">{m.message}</p>
+                  <p className="text-[10px] text-zinc-600 mt-1">
+                    {m.sender_type === 'client' ? 'You' : 'Blackbird'} · {new Date(m.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        {/* Input */}
+        {req.status !== 'done' && (
+          <div className="px-4 py-3 border-t border-border flex-shrink-0">
+            <div className="flex gap-2">
+              <textarea
+                className="flex-1 bg-zinc-900 border border-border rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-purple/50 resize-none"
+                rows={2}
+                placeholder="Reply to Blackbird…"
+                value={text}
+                onChange={e => setText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+              />
+              <button
+                onClick={send}
+                disabled={!text.trim() || sending}
+                className="btn-primary px-4 self-end text-sm disabled:opacity-50"
+              >
+                {sending ? '…' : 'Send'}
+              </button>
+            </div>
+          </div>
+        )}
+        {req.status === 'done' && (
+          <div className="px-4 py-3 border-t border-border flex-shrink-0">
+            <p className="text-xs text-zinc-600 text-center">This request has been resolved. Submit a new request if you need further help.</p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
