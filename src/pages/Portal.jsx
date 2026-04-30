@@ -486,6 +486,9 @@ export default function Portal({ session }) {
           )}
         </div>
 
+        {/* Portal Feedback */}
+        <FeedbackSection clientId={client.id} userId={session.user.id} />
+
         {/* Services */}
         <div className="card">
           <p className="section-title mb-1">Other Services We Offer</p>
@@ -709,6 +712,145 @@ function RequestChatModal({ req, senderName, onClose }) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+const FEEDBACK_CATEGORIES = [
+  { value: 'general',         label: 'General feedback' },
+  { value: 'feature_request', label: 'I\'d like something added' },
+  { value: 'remove',          label: 'Something should be removed' },
+  { value: 'bug',             label: 'Something isn\'t working' },
+]
+
+function StarRating({ value, onChange }) {
+  const [hover, setHover] = useState(0)
+  return (
+    <div className="flex gap-1">
+      {[1, 2, 3, 4, 5].map(n => (
+        <button
+          key={n}
+          type="button"
+          onClick={() => onChange(n)}
+          onMouseEnter={() => setHover(n)}
+          onMouseLeave={() => setHover(0)}
+          className="text-xl leading-none transition-colors"
+        >
+          <span className={(hover || value) >= n ? 'text-amber-400' : 'text-zinc-700'}>★</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function FeedbackSection({ clientId, userId }) {
+  const [pastFeedback, setPastFeedback] = useState([])
+  const [rating, setRating] = useState(0)
+  const [category, setCategory] = useState('general')
+  const [message, setMessage] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    supabase.from('portal_feedback')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(3)
+      .then(({ data }) => setPastFeedback(data || []))
+  }, [userId])
+
+  const submit = async () => {
+    setError('')
+    if (!rating) { setError('Please select a star rating.'); return }
+    if (message.trim().length < 10) { setError('Please write at least a sentence of feedback.'); return }
+    setSubmitting(true)
+    const { data, error: err } = await supabase.from('portal_feedback').insert([{
+      client_id: clientId,
+      user_id: userId,
+      rating,
+      category,
+      message: message.trim(),
+    }]).select().single()
+    if (err) { setError('Something went wrong — please try again.'); setSubmitting(false); return }
+    setPastFeedback(prev => [data, ...prev].slice(0, 3))
+    setSubmitted(true)
+    setRating(0)
+    setCategory('general')
+    setMessage('')
+    setSubmitting(false)
+    setTimeout(() => setSubmitted(false), 4000)
+  }
+
+  const catLabel = v => FEEDBACK_CATEGORIES.find(c => c.value === v)?.label || v
+
+  return (
+    <div className="card">
+      <p className="section-title mb-1">Help Us Improve</p>
+      <p className="text-xs text-zinc-500 mb-4">Tell us what you think of your client portal — what's working, what's missing, or anything you'd like to see.</p>
+
+      {submitted ? (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-900/20 border border-emerald-900/40">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-emerald-400 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
+          <p className="text-xs text-emerald-400">Thanks — your feedback has been sent to the team.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <p className="text-[11px] text-zinc-500 mb-1.5">How are we doing overall?</p>
+            <StarRating value={rating} onChange={setRating} />
+          </div>
+          <div>
+            <p className="text-[11px] text-zinc-500 mb-1.5">What's this about?</p>
+            <select
+              className="input text-xs w-full"
+              value={category}
+              onChange={e => setCategory(e.target.value)}
+            >
+              {FEEDBACK_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <textarea
+              className="input w-full text-xs resize-none"
+              rows={3}
+              placeholder="Tell us more…"
+              value={message}
+              onChange={e => setMessage(e.target.value)}
+            />
+          </div>
+          {error && <p className="text-xs text-red-400">{error}</p>}
+          <button
+            onClick={submit}
+            disabled={submitting}
+            className="btn-primary text-xs py-2 w-full"
+          >
+            {submitting ? 'Sending…' : 'Send Feedback'}
+          </button>
+        </div>
+      )}
+
+      {pastFeedback.length > 0 && (
+        <details className="mt-4 group">
+          <summary className="text-[11px] text-zinc-600 cursor-pointer hover:text-zinc-400 transition-colors list-none flex items-center gap-1.5 select-none">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="group-open:rotate-90 transition-transform"><path d="M9 18l6-6-6-6"/></svg>
+            Your previous feedback ({pastFeedback.length})
+          </summary>
+          <div className="mt-3 space-y-2">
+            {pastFeedback.map(f => (
+              <div key={f.id} className="p-3 rounded-lg bg-zinc-900/60 border border-border/50">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] text-zinc-600">{catLabel(f.category)}</span>
+                  <span className="text-[10px] text-amber-400">{'★'.repeat(f.rating)}{'☆'.repeat(5 - f.rating)}</span>
+                </div>
+                <p className="text-xs text-zinc-400 leading-relaxed">{f.message}</p>
+                <p className="text-[10px] text-zinc-700 mt-1">{new Date(f.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   )
 }
