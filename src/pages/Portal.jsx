@@ -593,21 +593,22 @@ function RequestChatModal({ req, senderName, onClose }) {
   const [loading, setLoading] = useState(true)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const [liveStatus, setLiveStatus] = useState(req.status)
   const bottomRef = useRef(null)
 
   const type = ALL_REQUEST_TYPES.find(t => t.value === req.type)
-  const statusLabel = req.status === 'done' ? 'Resolved' : req.status === 'in_progress' ? 'In progress' : 'Open'
-  const statusColor = req.status === 'done' ? 'text-emerald-400 bg-emerald-900/20' : req.status === 'in_progress' ? 'text-blue-400 bg-blue-900/20' : 'text-amber-400 bg-amber-900/20'
+  const statusLabel = liveStatus === 'done' ? 'Resolved' : liveStatus === 'in_progress' ? 'In progress' : 'Open'
+  const statusColor = liveStatus === 'done' ? 'text-emerald-400 bg-emerald-900/20' : liveStatus === 'in_progress' ? 'text-blue-400 bg-blue-900/20' : 'text-amber-400 bg-amber-900/20'
 
   useEffect(() => {
-    supabase.from('request_messages')
-      .select('*')
-      .eq('request_id', req.id)
-      .order('created_at', { ascending: true })
-      .then(({ data }) => {
-        setMessages(data || [])
-        setLoading(false)
-      })
+    Promise.all([
+      supabase.from('request_messages').select('*').eq('request_id', req.id).order('created_at', { ascending: true }),
+      supabase.from('client_requests').select('status').eq('id', req.id).single(),
+    ]).then(([{ data: msgs }, { data: reqData }]) => {
+      setMessages(msgs || [])
+      if (reqData?.status) setLiveStatus(reqData.status)
+      setLoading(false)
+    })
   }, [req.id])
 
   useEffect(() => {
