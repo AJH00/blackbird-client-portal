@@ -1,16 +1,63 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import BriefOnboarding from './BriefOnboarding'
+
+const DASHBOARD_API = 'https://dashboard.blackbird-marketing.uk'
+
+const CREDIT_TYPES = [
+  { value: 'text_copy',        label: 'Text or copy change',              cost: 1 },
+  { value: 'image_swap',       label: 'Image swap',                       cost: 1 },
+  { value: 'colour_font',      label: 'Colour or font change',            cost: 2 },
+  { value: 'layout_adjust',    label: 'Layout adjustment (move a section)', cost: 3 },
+  { value: 'new_section',      label: 'New section added',                cost: 5 },
+  { value: 'page_restructure', label: 'Page restructure',                 cost: 8 },
+  { value: 'new_page',         label: 'New page added',                  cost: 10 },
+  { value: 'full_redesign',    label: 'Full redesign request',           cost: 15 },
+]
+
+const STAGE_LABELS = {
+  'Brief Pending':     "We're waiting for your brief",
+  'Brief Received':    "We're reviewing your brief",
+  'Build In Progress': "We're building your site",
+  'Internal QC':       "We're quality checking your site",
+  'Client Review':     "Your site is ready to review",
+  'Revisions':         "We're making your changes",
+  'Approved':          "Your site is approved",
+  'Live':              "Your site is live",
+  'Maintenance':       "Your site is live and maintained",
+}
+
+const STAGE_NEXT = {
+  'Brief Pending':     "Complete your brief to get started",
+  'Brief Received':    "We'll confirm your brief within 24 hours",
+  'Build In Progress': "We'll send you a preview to review",
+  'Internal QC':       "Quality checks in progress",
+  'Client Review':     "Review your site and submit any changes",
+  'Revisions':         "Changes being made — preview coming soon",
+  'Approved':          "Final checks before going live",
+  'Live':              "Your site is live — well done!",
+  'Maintenance':       "Ongoing support and updates",
+}
+
+const PIPELINE = [
+  { label: 'Brief',  stages: ['Brief Pending', 'Brief Received'] },
+  { label: 'Build',  stages: ['Build In Progress', 'Internal QC'] },
+  { label: 'Review', stages: ['Client Review', 'Revisions', 'Approved'] },
+  { label: 'Live',   stages: ['Live', 'Maintenance'] },
+]
 
 const TRADE_REQUEST_TYPES = [
-  { value: 'website_change',   label: 'Website Change',    desc: 'Page edits, new sections, copy updates',  requiresUrl: true },
+  { value: 'revision_request', label: 'Revision Request',  desc: 'Changes to work we\'ve delivered' },
+  { value: 'website_change',   label: 'Website Change',    desc: 'Page edits, new sections, copy updates', requiresUrl: true },
   { value: 'content_feedback', label: 'Content Feedback',  desc: 'GMB posts, blog articles, social content' },
   { value: 'billing',          label: 'Billing / Account', desc: 'Invoice queries, plan changes' },
   { value: 'question',         label: 'General Question',  desc: 'Anything else' },
 ]
 const PROPERTY_REQUEST_TYPES = [
-  { value: 'listing_add',    label: 'Add a Listing',    desc: 'New property to publish on the site',       requiresAddress: true },
-  { value: 'listing_remove', label: 'Remove a Listing', desc: 'Sold or off-market — take it down',         requiresAddress: true },
-  { value: 'website_change', label: 'Site Change',      desc: 'Page edits, layout updates, new sections',  requiresUrl: true },
+  { value: 'revision_request', label: 'Revision Request', desc: 'Changes to work we\'ve delivered' },
+  { value: 'listing_add',    label: 'Add a Listing',    desc: 'New property to publish on the site',    requiresAddress: true },
+  { value: 'listing_remove', label: 'Remove a Listing', desc: 'Sold or off-market — take it down',      requiresAddress: true },
+  { value: 'website_change', label: 'Site Change',      desc: 'Page edits, layout updates',             requiresUrl: true },
   { value: 'billing',        label: 'Billing / Account', desc: 'Invoice queries, plan changes' },
   { value: 'question',       label: 'General Question',  desc: 'Anything else' },
 ]
@@ -20,48 +67,53 @@ const ALL_REQUEST_TYPES = [
   { value: 'listing_remove', label: 'Remove a Listing' },
 ]
 
-const STATUS_STYLES = {
-  'Completed':                  'bg-emerald-900/30 text-emerald-400 border border-emerald-900/50',
-  'Maintenance':                'bg-blue-900/30 text-blue-400 border border-blue-900/50',
-  'Awaiting Client Feedback':   'bg-amber-900/30 text-amber-400 border border-amber-900/50',
-  'Awaiting Client Brief':      'bg-amber-900/30 text-amber-400 border border-amber-900/50',
-  '2nd Phase – Adjustments':   'bg-purple/20 text-purple-light border border-purple/30',
-}
-
 const SERVICES = [
-  { name: 'Email Marketing', desc: 'Monthly newsletters and automated campaigns to keep your customers coming back.' },
-  { name: 'Social Media Management', desc: 'Consistent posting across Facebook and Instagram — done for you.' },
-  { name: 'Paid Ad Management', desc: 'Google and Facebook ads targeted to your local area, managed end to end.' },
-  { name: 'Extra Website Pages', desc: 'Location pages, service pages, or anything else to help you rank and convert.' },
+  { name: 'Email Marketing',          desc: 'Monthly newsletters and automated campaigns to keep your customers coming back.' },
+  { name: 'Social Media Management',  desc: 'Consistent posting across Facebook and Instagram — done for you.' },
+  { name: 'Paid Ad Management',       desc: 'Google and Facebook ads targeted to your local area, managed end to end.' },
+  { name: 'Extra Website Pages',      desc: 'Location pages, service pages, or anything else to help you rank and convert.' },
 ]
 
 const WATI_NUMBER = '447395837967'
+const NOTES_READ_KEY = (id) => `bb_notes_read_${id}`
 
 function fmtDate(iso) {
   if (!iso) return '—'
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
-
-function statusStyle(s) {
-  return STATUS_STYLES[s] || 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+function fmtShort(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+}
+function daysSince(iso) {
+  if (!iso) return 0
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
 }
 
 // ─── REQUEST MODAL ────────────────────────────────────────────────────────────
-function RequestModal({ client, siteType, openRequests, onSubmit, onClose }) {
+function RequestModal({ client, siteType, openRequests, credits, onSubmit, onClose }) {
   const requestTypes = siteType === 'property' ? PROPERTY_REQUEST_TYPES : TRADE_REQUEST_TYPES
-  const [type, setType] = useState(requestTypes[0].value)
-  const [title, setTitle] = useState('')
+  const [type, setType]           = useState(requestTypes[0].value)
+  const [creditType, setCreditType] = useState(CREDIT_TYPES[0].value)
+  const [title, setTitle]         = useState('')
   const [description, setDescription] = useState('')
-  const [pageUrl, setPageUrl] = useState('')
-  const [address, setAddress] = useState('')
-  const [files, setFiles] = useState([])
-  const [urgent, setUrgent] = useState(false)
+  const [pageUrl, setPageUrl]     = useState('')
+  const [address, setAddress]     = useState('')
+  const [files, setFiles]         = useState([])
+  const [urgent, setUrgent]       = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError]         = useState('')
 
-  const selectedType = requestTypes.find(t => t.value === type)
+  const selectedType   = requestTypes.find(t => t.value === type)
   const existingOfType = openRequests.find(r => r.type === type && r.status !== 'done')
-  const descLen = description.trim().length
+  const descLen        = description.trim().length
+  const isRevision     = type === 'revision_request'
+
+  const selectedCreditType = CREDIT_TYPES.find(c => c.value === creditType)
+  const creditCost         = isRevision ? (selectedCreditType?.cost ?? 0) : 0
+  const creditsAvailable   = (credits?.revision_credits ?? 30) - (credits?.revision_credits_used ?? 0)
+  const creditsAfter       = creditsAvailable - creditCost
+  const hasEnoughCredits   = !isRevision || creditsAfter >= 0
 
   const submit = async () => {
     setError('')
@@ -70,6 +122,7 @@ function RequestModal({ client, siteType, openRequests, onSubmit, onClose }) {
     if (selectedType.requiresUrl && !pageUrl.trim()) { setError('Please include the page URL for this change.'); return }
     if (selectedType.requiresAddress && !address.trim()) { setError('Please include the property address.'); return }
     if (existingOfType) { setError('You already have an open request of this type. Please wait for it to be resolved first.'); return }
+    if (!hasEnoughCredits) { setError('Not enough credits for this request.'); return }
 
     setSubmitting(true)
     try {
@@ -92,7 +145,13 @@ function RequestModal({ client, siteType, openRequests, onSubmit, onClose }) {
       const res = await fetch('/api/submit-request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ client_id: client.id, type, title: title.trim(), description: description.trim(), page_url: ref || null, priority: urgent ? 'urgent' : 'normal', attachments: uploadedUrls }),
+        body: JSON.stringify({
+          client_id: client.id, type, title: title.trim(), description: description.trim(),
+          page_url: ref || null, priority: urgent ? 'urgent' : 'normal',
+          attachments: uploadedUrls, paid_revision: false,
+          credit_cost: isRevision ? creditCost : null,
+          request_type: isRevision ? creditType : null,
+        }),
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error || 'Something went wrong.'); setSubmitting(false); return }
@@ -133,6 +192,64 @@ function RequestModal({ client, siteType, openRequests, onSubmit, onClose }) {
             </div>
           </div>
 
+          {/* Credits info for revision requests */}
+          {isRevision && (
+            <div className={`px-3 py-2.5 rounded-lg border ${
+              creditsAvailable >= 15 ? 'bg-emerald-900/10 border-emerald-900/30' :
+              creditsAvailable >= 5  ? 'bg-amber-900/10 border-amber-900/30' :
+              'bg-red-900/10 border-red-900/30'
+            }`}>
+              <p className={`text-xs font-semibold ${
+                creditsAvailable >= 15 ? 'text-emerald-400' : creditsAvailable >= 5 ? 'text-amber-400' : 'text-red-400'
+              }`}>
+                {creditsAvailable} credit{creditsAvailable !== 1 ? 's' : ''} remaining
+              </p>
+            </div>
+          )}
+
+          {isRevision && (
+            <div>
+              <label className="label block mb-1.5">What type of change?</label>
+              <div className="space-y-1.5">
+                {CREDIT_TYPES.map(ct => (
+                  <button key={ct.value} onClick={() => setCreditType(ct.value)}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-left transition-all ${
+                      creditType === ct.value ? 'border-purple/50 bg-purple/10' : 'border-border hover:border-zinc-700'
+                    }`}>
+                    <span className={`text-xs ${creditType === ct.value ? 'text-purple-light font-semibold' : 'text-zinc-300'}`}>
+                      {ct.label}
+                    </span>
+                    <span className={`text-[10px] font-mono font-bold ${creditType === ct.value ? 'text-purple-light' : 'text-zinc-500'}`}>
+                      {ct.cost} cr
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {selectedCreditType && (
+                <div className={`mt-2 px-3 py-2 rounded-lg text-xs ${hasEnoughCredits ? 'bg-zinc-900' : 'bg-red-900/20 border border-red-900/40'}`}>
+                  {hasEnoughCredits ? (
+                    <span className="text-zinc-400">
+                      This request costs <span className="text-zinc-200 font-semibold">{creditCost} credit{creditCost !== 1 ? 's' : ''}</span>.
+                      You'll have <span className="text-zinc-200 font-semibold">{creditsAfter}</span> remaining.
+                    </span>
+                  ) : (
+                    <div>
+                      <p className="text-red-400 font-semibold mb-1">
+                        You need {Math.abs(creditsAfter)} more credit{Math.abs(creditsAfter) !== 1 ? 's' : ''} for this request.
+                      </p>
+                      <p className="text-zinc-400">Top up your credits:</p>
+                      <div className="mt-1.5 space-y-0.5">
+                        <p className="text-zinc-300">10 credits — £50</p>
+                        <p className="text-zinc-300">20 credits — £80</p>
+                      </div>
+                      <p className="text-zinc-500 mt-1.5">Contact us on WhatsApp to top up.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="label block mb-1.5">Request title</label>
             <input className="input" placeholder="e.g. Update homepage hero text"
@@ -144,7 +261,6 @@ function RequestModal({ client, siteType, openRequests, onSubmit, onClose }) {
               <label className="label block mb-1.5">Page URL</label>
               <input className="input font-mono text-xs" placeholder="https://yoursite.co.uk/page"
                 value={pageUrl} onChange={e => setPageUrl(e.target.value)} />
-              <p className="text-[10px] text-zinc-600 mt-1">Paste the URL of the page you'd like changed.</p>
             </div>
           )}
           {selectedType?.requiresAddress && (
@@ -158,23 +274,16 @@ function RequestModal({ client, siteType, openRequests, onSubmit, onClose }) {
           <div>
             <label className="label block mb-1.5">
               Description
-              <span className={`ml-2 normal-case font-normal ${descLen < 50 ? 'text-zinc-700' : 'text-emerald-500'}`}>
-                {descLen}/50 min
-              </span>
+              <span className={`ml-2 normal-case font-normal ${descLen < 50 ? 'text-zinc-700' : 'text-emerald-500'}`}>{descLen}/50 min</span>
             </label>
             <textarea className="input resize-none text-sm" rows={4}
-              placeholder={
-                type === 'listing_add'    ? "Describe the property — bedrooms, price, key features, anything to include on the site." :
-                type === 'listing_remove' ? "Confirm which property to remove and any additional details (e.g. sold, off market)." :
-                "Describe exactly what you need. The more detail you give, the faster we can get it done."
-              }
+              placeholder="Describe exactly what you need. The more detail you give, the faster we can get it done."
               value={description} onChange={e => setDescription(e.target.value)} />
           </div>
 
           <div>
             <label className="label block mb-1.5">
-              Attachments
-              <span className="ml-1.5 text-zinc-700 font-normal normal-case">optional · images or videos · max 5</span>
+              Attachments <span className="ml-1.5 text-zinc-700 font-normal normal-case">optional · max 5</span>
             </label>
             <input type="file" multiple accept="image/*,video/*"
               onChange={e => setFiles(Array.from(e.target.files).slice(0, 5))}
@@ -184,8 +293,7 @@ function RequestModal({ client, siteType, openRequests, onSubmit, onClose }) {
                 {files.map((f, i) => (
                   <div key={i} className="flex items-center gap-1.5 text-[10px] bg-zinc-800 text-zinc-400 px-2 py-1 rounded-lg">
                     <span>{f.name.length > 24 ? f.name.slice(0, 24) + '…' : f.name}</span>
-                    <button type="button" onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
-                      className="text-zinc-600 hover:text-red-400 transition-colors leading-none">×</button>
+                    <button type="button" onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))} className="text-zinc-600 hover:text-red-400 transition-colors leading-none">×</button>
                   </div>
                 ))}
               </div>
@@ -193,8 +301,7 @@ function RequestModal({ client, siteType, openRequests, onSubmit, onClose }) {
           </div>
 
           <label className="flex items-start gap-3 cursor-pointer p-3 rounded-lg border border-border hover:border-zinc-700 transition-colors">
-            <input type="checkbox" checked={urgent} onChange={e => setUrgent(e.target.checked)}
-              className="w-3.5 h-3.5 mt-0.5 rounded accent-purple" />
+            <input type="checkbox" checked={urgent} onChange={e => setUrgent(e.target.checked)} className="w-3.5 h-3.5 mt-0.5 rounded accent-purple" />
             <div>
               <p className="text-xs font-semibold text-zinc-300">Mark as urgent</p>
               <p className="text-[10px] text-zinc-600 leading-relaxed">Only use this if your business is genuinely affected. Limited to once per month.</p>
@@ -209,7 +316,7 @@ function RequestModal({ client, siteType, openRequests, onSubmit, onClose }) {
         </div>
 
         <div className="flex gap-2 px-5 py-4 border-t border-border">
-          <button onClick={submit} disabled={submitting} className="btn-primary flex-1 justify-center text-sm">
+          <button onClick={submit} disabled={submitting || (isRevision && !hasEnoughCredits)} className="btn-primary flex-1 justify-center text-sm disabled:opacity-50">
             {submitting ? <span className="flex items-center gap-2"><span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />Submitting…</span> : 'Submit Request'}
           </button>
           <button onClick={onClose} className="btn-secondary">Cancel</button>
@@ -239,8 +346,7 @@ function UpdateDetailsModal({ profile, onSave, onClose }) {
       const { error: pwErr } = await supabase.auth.updateUser({ password: newPassword })
       if (pwErr) { setError(pwErr.message); setSaving(false); return }
     }
-    setSaving(false)
-    setDone(true)
+    setSaving(false); setDone(true)
     setTimeout(() => { onSave({ name: name.trim(), phone: phone.trim() }); onClose() }, 1000)
   }
 
@@ -262,15 +368,11 @@ function UpdateDetailsModal({ profile, onSave, onClose }) {
           </div>
           <div className="border-t border-border pt-4 space-y-3">
             <p className="text-[11px] text-zinc-500 font-semibold uppercase tracking-wider">Change password</p>
-            <input type="password" className="input" placeholder="New password (min 8 characters)"
-              value={newPassword} onChange={e => setNewPassword(e.target.value)} />
-            {newPassword && (
-              <input type="password" className="input" placeholder="Confirm new password"
-                value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
-            )}
+            <input type="password" className="input" placeholder="New password (min 8 characters)" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+            {newPassword && <input type="password" className="input" placeholder="Confirm new password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />}
           </div>
           <div className="bg-zinc-900 rounded-lg p-3">
-            <p className="text-[11px] text-zinc-500">To update your email address, contact us at <span className="text-zinc-300">contact@blackbird-marketing.co.uk</span></p>
+            <p className="text-[11px] text-zinc-500">To update your email, contact us at <span className="text-zinc-300">contact@blackbird-marketing.co.uk</span></p>
           </div>
           {error && <p className="text-xs text-red-400">{error}</p>}
         </div>
@@ -285,25 +387,249 @@ function UpdateDetailsModal({ profile, onSave, onClose }) {
   )
 }
 
+// ─── PROJECT STATUS CARD ──────────────────────────────────────────────────────
+function ProjectStatusCard({ project, notes, brief, loading }) {
+  if (loading) {
+    return (
+      <div className="card">
+        <p className="section-title mb-4">Your Project</p>
+        <div className="flex items-center gap-2 py-2">
+          <div className="w-3.5 h-3.5 border-2 border-purple/40 border-t-purple rounded-full animate-spin" />
+          <p className="text-xs text-zinc-600">Loading project data…</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!project && brief) {
+    return (
+      <div className="card">
+        <p className="section-title mb-4">Your Project</p>
+        <div className="bg-purple/5 border border-purple/20 rounded-lg p-4">
+          <p className="text-sm font-semibold text-zinc-200 mb-1">Brief received — thanks!</p>
+          <p className="text-xs text-zinc-400 leading-relaxed">We'll review your brief and be in touch within 24 hours to confirm everything and kick off your project.</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!project) {
+    return (
+      <div className="card">
+        <p className="section-title mb-4">Your Project</p>
+        <p className="text-sm text-zinc-400">Your project is being set up. Contact us if you have any questions.</p>
+      </div>
+    )
+  }
+
+  const daysInStage = daysSince(project.stage_entered_at)
+  const stageLabel  = STAGE_LABELS[project.stage] || project.stage
+  const nextStep    = STAGE_NEXT[project.stage] || ''
+  const pipelineIdx = PIPELINE.findIndex(p => p.stages.includes(project.stage))
+  const latestNote  = notes?.[0]
+
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between mb-4">
+        <p className="section-title mb-0">Your Project</p>
+        {project.stage === 'Live' || project.stage === 'Maintenance' ? (
+          <span className="text-[10px] bg-emerald-900/30 text-emerald-400 border border-emerald-900/50 px-2 py-0.5 rounded-full font-semibold">Live</span>
+        ) : null}
+      </div>
+
+      {/* Stage label */}
+      <div className="bg-zinc-900 rounded-lg p-3 mb-4">
+        <p className="text-sm font-semibold text-zinc-100">{stageLabel}</p>
+        <p className="text-[11px] text-zinc-500 mt-0.5">
+          {daysInStage === 0 ? 'Started today' : `${daysInStage} day${daysInStage !== 1 ? 's' : ''} in this stage`}
+          {nextStep && <> · {nextStep}</>}
+        </p>
+      </div>
+
+      {/* Visual pipeline */}
+      <div className="flex items-center mb-4">
+        {PIPELINE.map((p, i) => {
+          const isPast    = i < pipelineIdx
+          const isCurrent = i === pipelineIdx
+          const isFuture  = i > pipelineIdx
+          return (
+            <div key={p.label} className="flex items-center flex-1">
+              <div className="flex flex-col items-center flex-1">
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center mb-1 transition-all ${
+                  isPast    ? 'bg-emerald-600/30 border-2 border-emerald-600/50' :
+                  isCurrent ? 'bg-purple/30 border-2 border-purple ring-2 ring-purple/20' :
+                  'bg-zinc-800 border-2 border-zinc-700'
+                }`}>
+                  {isPast ? (
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="text-emerald-400"><polyline points="20 6 9 17 4 12"/></svg>
+                  ) : (
+                    <span className={`text-[10px] font-bold ${isCurrent ? 'text-purple-light' : 'text-zinc-600'}`}>{i + 1}</span>
+                  )}
+                </div>
+                <p className={`text-[9px] font-semibold text-center ${isCurrent ? 'text-purple-light' : isPast ? 'text-emerald-500/70' : 'text-zinc-600'}`}>
+                  {p.label}
+                </p>
+              </div>
+              {i < PIPELINE.length - 1 && (
+                <div className={`h-0.5 flex-1 mx-1 ${i < pipelineIdx ? 'bg-emerald-600/40' : 'bg-zinc-800'}`} />
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Latest update */}
+      {latestNote && (
+        <div className="bg-zinc-900 rounded-lg p-3">
+          <p className="text-[10px] text-zinc-600 uppercase tracking-wider font-semibold mb-1">Latest update from Blackbird</p>
+          <p className="text-sm text-zinc-300 leading-relaxed">{latestNote.content}</p>
+          <p className="text-[10px] text-zinc-600 mt-1">{fmtShort(latestNote.created_at)}</p>
+        </div>
+      )}
+
+      {project.target_date && (
+        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border">
+          <p className="text-[11px] text-zinc-600">Target launch date:</p>
+          <p className="text-[11px] font-semibold text-zinc-400">{fmtDate(project.target_date)}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── UPDATES FEED ─────────────────────────────────────────────────────────────
+function UpdatesFeed({ notes, clientId, loading, onLoadMore, hasMore }) {
+  const [readIds, setReadIds] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(NOTES_READ_KEY(clientId)) || '[]')) }
+    catch { return new Set() }
+  })
+  const [showAll, setShowAll] = useState(false)
+
+  const markRead = (id) => {
+    if (readIds.has(id)) return
+    const next = new Set([...readIds, id])
+    setReadIds(next)
+    localStorage.setItem(NOTES_READ_KEY(clientId), JSON.stringify([...next]))
+  }
+
+  const visibleNotes = showAll ? notes : notes.slice(0, 5)
+  const unreadCount  = notes.filter(n => !readIds.has(n.id)).length
+
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between mb-4">
+        <p className="section-title mb-0">
+          Project Updates
+          {unreadCount > 0 && (
+            <span className="ml-2 text-[10px] bg-purple/20 text-purple-light border border-purple/30 px-2 py-0.5 rounded-full font-normal normal-case tracking-normal">
+              {unreadCount} new
+            </span>
+          )}
+        </p>
+        {unreadCount > 0 && (
+          <button onClick={() => {
+            const next = new Set([...readIds, ...notes.map(n => n.id)])
+            setReadIds(next)
+            localStorage.setItem(NOTES_READ_KEY(clientId), JSON.stringify([...next]))
+          }} className="text-[11px] text-zinc-600 hover:text-zinc-400 transition-colors">
+            Mark all read
+          </button>
+        )}
+      </div>
+
+      {loading && (
+        <div className="flex items-center gap-2 py-2">
+          <div className="w-3.5 h-3.5 border-2 border-purple/40 border-t-purple rounded-full animate-spin" />
+          <p className="text-xs text-zinc-600">Loading updates…</p>
+        </div>
+      )}
+
+      {!loading && notes.length === 0 && (
+        <p className="text-sm text-zinc-500 leading-relaxed">
+          Updates from your Blackbird team will appear here. We'll keep you posted on your project progress.
+        </p>
+      )}
+
+      {!loading && notes.length > 0 && (
+        <div className="space-y-3">
+          {visibleNotes.map(note => {
+            const isUnread = !readIds.has(note.id)
+            return (
+              <div key={note.id}
+                className={`flex items-start gap-3 p-3 rounded-lg bg-zinc-900/60 border cursor-pointer transition-colors ${isUnread ? 'border-purple/30 hover:border-purple/50' : 'border-border/50 hover:border-zinc-700'}`}
+                onClick={() => markRead(note.id)}>
+                <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${isUnread ? 'bg-purple' : 'bg-zinc-700'}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="text-[10px] text-zinc-500 font-semibold">The Blackbird Team</p>
+                    <span className="text-zinc-700">·</span>
+                    <p className="text-[10px] text-zinc-600">{fmtShort(note.created_at)}</p>
+                  </div>
+                  <p className="text-sm text-zinc-300 leading-relaxed">{note.content}</p>
+                </div>
+              </div>
+            )
+          })}
+          {notes.length > 5 && !showAll && (
+            <button onClick={() => setShowAll(true)} className="text-[11px] text-zinc-600 hover:text-zinc-400 transition-colors w-full text-center pt-1">
+              Show {notes.length - 5} more update{notes.length - 5 !== 1 ? 's' : ''} ↓
+            </button>
+          )}
+          {showAll && hasMore && (
+            <button onClick={onLoadMore} className="text-[11px] text-zinc-600 hover:text-zinc-400 transition-colors w-full text-center pt-1">
+              Load older updates ↓
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── MAIN PORTAL ─────────────────────────────────────────────────────────────
 export default function Portal({ session }) {
-  const [client, setClient] = useState(null)
-  const [profile, setProfile] = useState(null)
-  const [notion, setNotion] = useState(null)
-  const [notionLoaded, setNotionLoaded] = useState(false)
-  const [requests, setRequests] = useState([])
-  const [showModal, setShowModal] = useState(false)
+  const [client, setClient]         = useState(null)
+  const [profile, setProfile]       = useState(null)
+  const [requests, setRequests]     = useState([])
+  const [project, setProject]       = useState(null)
+  const [brief, setBrief]           = useState(undefined)  // undefined = not yet fetched
+  const [notes, setNotes]           = useState([])
+  const [credits, setCredits]       = useState({ revision_credits: 30, revision_credits_used: 0 })
+  const [projectLoaded, setProjectLoaded] = useState(false)
+  const [notesOffset, setNotesOffset] = useState(0)
+  const [hasMoreNotes, setHasMoreNotes] = useState(false)
+  const [showModal, setShowModal]   = useState(false)
   const [showDetails, setShowDetails] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [chatReq, setChatReq] = useState(null)
+  const [submitted, setSubmitted]   = useState(false)
+  const [loading, setLoading]       = useState(true)
+  const [chatReq, setChatReq]       = useState(null)
+
+  const fetchProjectData = async (clientId, offset = 0) => {
+    try {
+      const res = await fetch(`${DASHBOARD_API}/api/projects?client_id=${clientId}&notes_offset=${offset}`)
+      const data = await res.json()
+      if (offset === 0) {
+        setProject(data.project || null)
+        setBrief(data.brief || null)
+        setNotes(data.notes || [])
+        setCredits(data.credits || { revision_credits: 30, revision_credits_used: 0 })
+        setHasMoreNotes((data.notes || []).length === 10)
+      } else {
+        setNotes(prev => [...prev, ...(data.notes || [])])
+        setHasMoreNotes((data.notes || []).length === 10)
+      }
+    } catch {
+      setBrief(null)
+    }
+    setProjectLoaded(true)
+  }
 
   useEffect(() => {
     async function load() {
       const { data: prof } = await supabase
         .from('profiles').select('id, client_id, name, phone').eq('id', session.user.id).single()
 
-      if (!prof?.client_id) { setLoading(false); return }
+      if (!prof?.client_id) { setLoading(false); setBrief(null); return }
       setProfile(prof)
 
       const [{ data: clientData }, { data: reqData }] = await Promise.all([
@@ -314,20 +640,26 @@ export default function Portal({ session }) {
 
       setClient(clientData)
       setRequests(reqData || [])
-
-      if (clientData?.name) {
-        fetch(`/api/notion-status?name=${encodeURIComponent(clientData.name)}`)
-          .then(r => r.json())
-          .then(d => { setNotion(d.project || null); setNotionLoaded(true) })
-          .catch(() => setNotionLoaded(true))
-      } else {
-        setNotionLoaded(true)
-      }
-
       setLoading(false)
+
+      if (clientData?.id) fetchProjectData(clientData.id)
     }
     load()
   }, [session])
+
+  const loadMoreNotes = () => {
+    if (client) {
+      const next = notesOffset + 10
+      setNotesOffset(next)
+      fetchProjectData(client.id, next)
+    }
+  }
+
+  const handleBriefComplete = () => {
+    if (client) fetchProjectData(client.id)
+    setSubmitted(true)
+    setTimeout(() => setSubmitted(false), 5000)
+  }
 
   const handleSubmit = (newReq) => {
     setRequests(prev => [newReq, ...prev])
@@ -358,8 +690,20 @@ export default function Portal({ session }) {
     )
   }
 
-  const openRequests = requests.filter(r => r.status !== 'done')
+  // Show onboarding if no brief submitted and project data has loaded
+  if (projectLoaded && brief === null) {
+    return (
+      <BriefOnboarding
+        client={client}
+        session={session}
+        onComplete={handleBriefComplete}
+      />
+    )
+  }
+
+  const openRequests     = requests.filter(r => r.status !== 'done')
   const resolvedRequests = requests.filter(r => r.status === 'done')
+  const creditsRemaining = (credits?.revision_credits ?? 30) - (credits?.revision_credits_used ?? 0)
 
   return (
     <div className="min-h-screen bg-black">
@@ -394,63 +738,18 @@ export default function Portal({ session }) {
         )}
 
         {/* Project status */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <p className="section-title mb-0">Your Project</p>
-            {notion?.wixUrl && (
-              <a href={notion.wixUrl} target="_blank" rel="noopener noreferrer"
-                className="text-[11px] text-zinc-600 hover:text-zinc-300 transition-colors">View site ↗</a>
-            )}
-          </div>
+        <ProjectStatusCard project={project} notes={notes} brief={brief} loading={!projectLoaded} />
 
-          {!notionLoaded ? (
-            <div className="flex items-center gap-2 py-2">
-              <div className="w-3.5 h-3.5 border-2 border-purple/40 border-t-purple rounded-full animate-spin" />
-              <p className="text-xs text-zinc-600">Loading project data…</p>
-            </div>
-          ) : notion ? (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className={`text-xs font-semibold px-3 py-1 rounded-full ${statusStyle(notion.status)}`}>
-                  {notion.status || 'Active'}
-                </span>
-                {notion.progress !== null && (
-                  <span className="text-xs font-mono text-zinc-400">{notion.progress}% complete</span>
-                )}
-              </div>
-              {notion.progress !== null && (
-                <div className="w-full bg-zinc-900 rounded-full h-1.5">
-                  <div className="bg-purple h-1.5 rounded-full transition-all duration-700" style={{ width: `${notion.progress}%` }} />
-                </div>
-              )}
-              {notion.clientUpdate && (
-                <div className="bg-zinc-900 rounded-lg p-3">
-                  <p className="text-[10px] text-zinc-600 uppercase tracking-wider font-semibold mb-1">Latest update</p>
-                  <p className="text-sm text-zinc-300 leading-relaxed">{notion.clientUpdate}</p>
-                </div>
-              )}
-              <div className="grid grid-cols-3 gap-3 pt-1">
-                {notion.sitePackage && <div><p className="text-[10px] text-zinc-600 mb-0.5">Package</p><p className="text-xs font-semibold text-zinc-300">{notion.sitePackage}</p></div>}
-                {notion.onboarded && <div><p className="text-[10px] text-zinc-600 mb-0.5">Started</p><p className="text-xs font-semibold text-zinc-300">{fmtDate(notion.onboarded)}</p></div>}
-                {notion.projectFinished && <div><p className="text-[10px] text-zinc-600 mb-0.5">Launched</p><p className="text-xs font-semibold text-zinc-300">{fmtDate(notion.projectFinished)}</p></div>}
-              </div>
-              {notion.filloutFormLink && (
-                <div className="pt-2 border-t border-border">
-                  <p className="text-[10px] text-zinc-600 mb-2">Need changes to your site? Submit a revision request directly.</p>
-                  <a href={notion.filloutFormLink} target="_blank" rel="noopener noreferrer"
-                    className="btn-primary text-xs py-1.5 inline-flex">
-                    Submit a Revision →
-                  </a>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="py-2">
-              <p className="text-sm text-zinc-400">Your project is active.</p>
-              <p className="text-xs text-zinc-600 mt-1">Project updates will appear here. Contact us if you have any questions.</p>
-            </div>
-          )}
-        </div>
+        {/* Project updates feed */}
+        {(projectLoaded ? notes.length > 0 : true) && (
+          <UpdatesFeed
+            notes={notes}
+            clientId={client.id}
+            loading={!projectLoaded}
+            onLoadMore={loadMoreNotes}
+            hasMore={hasMoreNotes}
+          />
+        )}
 
         {/* Requests */}
         <div className="card">
@@ -464,6 +763,28 @@ export default function Portal({ session }) {
               )}
             </p>
             <button onClick={() => setShowModal(true)} className="btn-primary text-xs py-1.5">+ New Request</button>
+          </div>
+
+          {/* Credits balance */}
+          <div className={`flex items-center justify-between px-3 py-2 rounded-lg mb-4 ${
+            creditsRemaining <= 4 ? 'bg-red-900/10 border border-red-900/30' :
+            creditsRemaining <= 14 ? 'bg-amber-900/10 border border-amber-900/30' : 'bg-zinc-900/60'
+          }`}>
+            <div>
+              <p className="text-[11px] text-zinc-400">
+                Revision credits:{' '}
+                <span className={`font-semibold ${
+                  creditsRemaining <= 4 ? 'text-red-400' :
+                  creditsRemaining <= 14 ? 'text-amber-400' : 'text-zinc-200'
+                }`}>
+                  {creditsRemaining} remaining
+                </span>
+              </p>
+              <p className="text-[10px] text-zinc-700 mt-0.5">Used for site changes · costs vary by change type</p>
+            </div>
+            {creditsRemaining <= 4 && (
+              <span className="text-[10px] text-red-400 font-semibold">Low</span>
+            )}
           </div>
 
           {openRequests.length === 0 && resolvedRequests.length === 0 && (
@@ -510,14 +831,13 @@ export default function Portal({ session }) {
               <p className="text-[11px] text-zinc-400 leading-relaxed">Know another trade business who could use our help? We'll pay you £50 for every successful referral. Just mention their name when you get in touch.</p>
             </div>
           </div>
-          <p className="text-[11px] text-zinc-600 mt-3">Interested in any of the above? Message us on WhatsApp or submit a general request above.</p>
         </div>
 
         {/* Contact */}
         <div className="card-sm">
           <p className="text-xs font-semibold text-zinc-300 mb-3">Get in touch</p>
           <div className="flex flex-col sm:flex-row gap-2">
-            <a href={`mailto:contact@blackbird-marketing.co.uk`}
+            <a href="mailto:contact@blackbird-marketing.co.uk"
               className="flex-1 flex items-center gap-2.5 p-3 rounded-lg bg-zinc-900/60 border border-border/50 hover:border-zinc-700 transition-colors">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-zinc-500 flex-shrink-0">
                 <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
@@ -543,7 +863,14 @@ export default function Portal({ session }) {
       </main>
 
       {showModal && (
-        <RequestModal client={client} siteType={client.site_type || 'trade'} openRequests={openRequests} onSubmit={handleSubmit} onClose={() => setShowModal(false)} />
+        <RequestModal
+          client={client}
+          siteType={client.site_type || 'trade'}
+          openRequests={openRequests}
+          credits={credits}
+          onSubmit={handleSubmit}
+          onClose={() => setShowModal(false)}
+        />
       )}
       {showDetails && profile && (
         <UpdateDetailsModal
@@ -574,6 +901,7 @@ function RequestRow({ r, onOpen }) {
         <div className="flex items-center gap-2 flex-wrap mb-0.5">
           <span className="text-xs font-semibold text-zinc-200">{r.title}</span>
           {r.priority === 'urgent' && <span className="text-[10px] bg-red-900/30 text-red-400 px-1.5 py-0.5 rounded font-semibold">Urgent</span>}
+          {r.credit_cost && <span className="text-[10px] bg-zinc-800 text-zinc-500 px-1.5 py-0.5 rounded">{r.credit_cost} cr</span>}
         </div>
         <div className="flex items-center gap-2 text-[10px] text-zinc-600">
           <span>{type?.label}</span><span>·</span>
@@ -591,9 +919,9 @@ function RequestRow({ r, onOpen }) {
 
 function RequestChatModal({ req, senderName, onClose }) {
   const [messages, setMessages] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [text, setText] = useState('')
-  const [sending, setSending] = useState(false)
+  const [loading, setLoading]   = useState(true)
+  const [text, setText]         = useState('')
+  const [sending, setSending]   = useState(false)
   const [liveStatus, setLiveStatus] = useState(req.status)
   const bottomRef = useRef(null)
 
@@ -612,24 +940,21 @@ function RequestChatModal({ req, senderName, onClose }) {
     })
   }, [req.id])
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   const send = async () => {
     if (!text.trim() || sending) return
     setSending(true)
-    const msg = { request_id: req.id, sender_type: 'client', sender_name: senderName, message: text.trim() }
-    const { data } = await supabase.from('request_messages').insert([msg]).select()
+    const { data } = await supabase.from('request_messages').insert([{
+      request_id: req.id, sender_type: 'client', sender_name: senderName, message: text.trim(),
+    }]).select()
     if (data?.[0]) setMessages(prev => [...prev, data[0]])
-    setText('')
-    setSending(false)
+    setText(''); setSending(false)
   }
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
       <div className="bg-[#111111] border border-border rounded-t-2xl sm:rounded-xl w-full sm:max-w-lg shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
-        {/* Header */}
         <div className="px-5 py-4 border-b border-border flex-shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
@@ -643,8 +968,6 @@ function RequestChatModal({ req, senderName, onClose }) {
             <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 text-xl w-6 h-6 flex items-center justify-center flex-shrink-0">×</button>
           </div>
         </div>
-
-        {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-[200px]">
           <div className="text-center mb-4">
             <p className="text-[10px] text-zinc-700 bg-zinc-900 inline-block px-3 py-1 rounded-full">
@@ -657,54 +980,35 @@ function RequestChatModal({ req, senderName, onClose }) {
               <p className="text-[10px] text-zinc-600 mt-1">You · original request</p>
             </div>
           </div>
-
           {loading ? (
             <div className="flex items-center gap-2 py-2">
               <div className="w-3 h-3 border-2 border-purple/40 border-t-purple rounded-full animate-spin" />
               <p className="text-xs text-zinc-600">Loading messages…</p>
             </div>
-          ) : (
-            messages.map(m => (
-              <div key={m.id} className={`flex ${m.sender_type === 'client' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[80%] rounded-xl px-3 py-2 ${
-                  m.sender_type === 'client'
-                    ? 'bg-purple/20 border border-purple/30 text-zinc-100'
-                    : 'bg-zinc-800 border border-zinc-700 text-zinc-200'
-                }`}>
-                  <p className="text-xs leading-relaxed">{m.message}</p>
-                  <p className="text-[10px] text-zinc-600 mt-1">
-                    {m.sender_type === 'client' ? 'You' : 'Blackbird'} · {new Date(m.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                  </p>
-                </div>
+          ) : messages.map(m => (
+            <div key={m.id} className={`flex ${m.sender_type === 'client' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[80%] rounded-xl px-3 py-2 ${m.sender_type === 'client' ? 'bg-purple/20 border border-purple/30 text-zinc-100' : 'bg-zinc-800 border border-zinc-700 text-zinc-200'}`}>
+                <p className="text-xs leading-relaxed">{m.message}</p>
+                <p className="text-[10px] text-zinc-600 mt-1">
+                  {m.sender_type === 'client' ? 'You' : 'Blackbird'} · {new Date(m.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                </p>
               </div>
-            ))
-          )}
+            </div>
+          ))}
           <div ref={bottomRef} />
         </div>
-
-        {/* Input */}
-        {req.status !== 'done' && (
+        {req.status !== 'done' ? (
           <div className="px-4 py-3 border-t border-border flex-shrink-0">
             <div className="flex gap-2">
-              <textarea
-                className="flex-1 bg-zinc-900 border border-border rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-purple/50 resize-none"
-                rows={2}
-                placeholder="Reply to Blackbird…"
-                value={text}
-                onChange={e => setText(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-              />
-              <button
-                onClick={send}
-                disabled={!text.trim() || sending}
-                className="btn-primary px-4 self-end text-sm disabled:opacity-50"
-              >
+              <textarea className="flex-1 bg-zinc-900 border border-border rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-purple/50 resize-none" rows={2}
+                placeholder="Reply to Blackbird…" value={text} onChange={e => setText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} />
+              <button onClick={send} disabled={!text.trim() || sending} className="btn-primary px-4 self-end text-sm disabled:opacity-50">
                 {sending ? '…' : 'Send'}
               </button>
             </div>
           </div>
-        )}
-        {req.status === 'done' && (
+        ) : (
           <div className="px-4 py-3 border-t border-border flex-shrink-0">
             <p className="text-xs text-zinc-600 text-center">This request has been resolved. Submit a new request if you need further help.</p>
           </div>
@@ -725,15 +1029,8 @@ function StarRating({ value, onChange }) {
   const [hover, setHover] = useState(0)
   return (
     <div className="flex gap-1">
-      {[1, 2, 3, 4, 5].map(n => (
-        <button
-          key={n}
-          type="button"
-          onClick={() => onChange(n)}
-          onMouseEnter={() => setHover(n)}
-          onMouseLeave={() => setHover(0)}
-          className="text-xl leading-none transition-colors"
-        >
+      {[1,2,3,4,5].map(n => (
+        <button key={n} type="button" onClick={() => onChange(n)} onMouseEnter={() => setHover(n)} onMouseLeave={() => setHover(0)} className="text-xl leading-none transition-colors">
           <span className={(hover || value) >= n ? 'text-amber-400' : 'text-zinc-700'}>★</span>
         </button>
       ))}
@@ -743,19 +1040,16 @@ function StarRating({ value, onChange }) {
 
 function FeedbackSection({ clientId, userId }) {
   const [pastFeedback, setPastFeedback] = useState([])
-  const [rating, setRating] = useState(0)
+  const [rating, setRating]   = useState(0)
   const [category, setCategory] = useState('general')
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
-  const [error, setError] = useState('')
+  const [submitted, setSubmitted]   = useState(false)
+  const [error, setError]     = useState('')
 
   useEffect(() => {
-    supabase.from('portal_feedback')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(3)
+    supabase.from('portal_feedback').select('*').eq('user_id', userId)
+      .order('created_at', { ascending: false }).limit(3)
       .then(({ data }) => setPastFeedback(data || []))
   }, [userId])
 
@@ -765,19 +1059,11 @@ function FeedbackSection({ clientId, userId }) {
     if (message.trim().length < 10) { setError('Please write at least a sentence of feedback.'); return }
     setSubmitting(true)
     const { data, error: err } = await supabase.from('portal_feedback').insert([{
-      client_id: clientId,
-      user_id: userId,
-      rating,
-      category,
-      message: message.trim(),
+      client_id: clientId, user_id: userId, rating, category, message: message.trim(),
     }]).select().single()
     if (err) { setError('Something went wrong — please try again.'); setSubmitting(false); return }
     setPastFeedback(prev => [data, ...prev].slice(0, 3))
-    setSubmitted(true)
-    setRating(0)
-    setCategory('general')
-    setMessage('')
-    setSubmitting(false)
+    setSubmitted(true); setRating(0); setCategory('general'); setMessage(''); setSubmitting(false)
     setTimeout(() => setSubmitted(false), 4000)
   }
 
@@ -786,7 +1072,7 @@ function FeedbackSection({ clientId, userId }) {
   return (
     <div className="card">
       <p className="section-title mb-1">Help Us Improve</p>
-      <p className="text-xs text-zinc-500 mb-4">Tell us what you think of your client portal — what's working, what's missing, or anything you'd like to see.</p>
+      <p className="text-xs text-zinc-500 mb-4">Tell us what you think of your client portal.</p>
 
       {submitted ? (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-900/20 border border-emerald-900/40">
@@ -801,29 +1087,13 @@ function FeedbackSection({ clientId, userId }) {
           </div>
           <div>
             <p className="text-[11px] text-zinc-500 mb-1.5">What's this about?</p>
-            <select
-              className="input text-xs w-full"
-              value={category}
-              onChange={e => setCategory(e.target.value)}
-            >
+            <select className="input text-xs w-full" value={category} onChange={e => setCategory(e.target.value)}>
               {FEEDBACK_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
           </div>
-          <div>
-            <textarea
-              className="input w-full text-xs resize-none"
-              rows={3}
-              placeholder="Tell us more…"
-              value={message}
-              onChange={e => setMessage(e.target.value)}
-            />
-          </div>
+          <textarea className="input w-full text-xs resize-none" rows={3} placeholder="Tell us more…" value={message} onChange={e => setMessage(e.target.value)} />
           {error && <p className="text-xs text-red-400">{error}</p>}
-          <button
-            onClick={submit}
-            disabled={submitting}
-            className="btn-primary text-xs py-2 w-full"
-          >
+          <button onClick={submit} disabled={submitting} className="btn-primary text-xs py-2 w-full">
             {submitting ? 'Sending…' : 'Send Feedback'}
           </button>
         </div>
@@ -843,7 +1113,7 @@ function FeedbackSection({ clientId, userId }) {
                   <span className="text-[10px] text-amber-400">{'★'.repeat(f.rating)}{'☆'.repeat(5 - f.rating)}</span>
                 </div>
                 <p className="text-xs text-zinc-400 leading-relaxed">{f.message}</p>
-                <p className="text-[10px] text-zinc-700 mt-1">{new Date(f.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                <p className="text-[10px] text-zinc-700 mt-1">{fmtDate(f.created_at)}</p>
               </div>
             ))}
           </div>

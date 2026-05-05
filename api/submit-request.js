@@ -13,6 +13,7 @@ const ASSIGNEES = {
   listing_add:      'Gabriel',
   listing_remove:   'Gabriel',
   content_feedback: 'Tayla',
+  revision_request: 'Gabriel',
   billing:          'Adin',
   question:         'Adin',
 }
@@ -29,10 +30,10 @@ export default async function handler(req, res) {
   const { data: profile } = await supabase.from('profiles').select('client_id').eq('id', user.id).single()
   if (!profile?.client_id) return res.status(403).json({ error: 'No client account linked' })
 
-  const { client_id, type, title, description, page_url, priority, attachments } = req.body
+  const { client_id, type, title, description, page_url, priority, attachments, paid_revision, credit_cost, request_type } = req.body
   if (profile.client_id !== client_id) return res.status(403).json({ error: 'Forbidden' })
 
-  const VALID_TYPES = ['website_change', 'content_feedback', 'billing', 'question', 'listing_add', 'listing_remove']
+  const VALID_TYPES = ['website_change', 'content_feedback', 'billing', 'question', 'listing_add', 'listing_remove', 'revision_request']
   if (!VALID_TYPES.includes(type)) return res.status(400).json({ error: 'Invalid type' })
   if (!title?.trim() || !description?.trim()) return res.status(400).json({ error: 'Title and description required' })
   if (description.trim().length < 50) return res.status(400).json({ error: 'Description too short' })
@@ -56,16 +57,20 @@ export default async function handler(req, res) {
     client_id, type, title: title.trim(), description: description.trim(),
     page_url: page_url || null, priority: priority || 'normal', status: 'open',
     attachments: Array.isArray(attachments) && attachments.length ? attachments : null,
+    is_paid_revision: paid_revision === true,
+    credit_cost: credit_cost || null,
+    request_type: request_type || null,
   }).select().single()
   if (insertErr) return res.status(500).json({ error: insertErr.message })
 
   // Create task
   const { data: client } = await supabase.from('clients').select('name').eq('id', client_id).single()
+  const paidNote = paid_revision === true ? ' [PAID REVISION — invoice £75]' : ''
   const refLabel = ['listing_add', 'listing_remove'].includes(type) ? 'Address' : 'Page'
   const attachNote = Array.isArray(attachments) && attachments.length
     ? `\n\nAttachments:\n${attachments.join('\n')}` : ''
   await supabase.from('tasks').insert({
-    text: `[${client?.name}] ${title.trim()}`,
+    text: `[${client?.name}] ${title.trim()}${paidNote}`,
     assignee: ASSIGNEES[type] || 'Adin',
     priority: priority === 'urgent' ? 'High' : 'Medium',
     status: 'Todo',
