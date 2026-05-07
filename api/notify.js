@@ -91,6 +91,22 @@ function requestReplyEmail({ clientName, requestTitle }) {
   }
 }
 
+function briefReminderEmail({ clientName, days }) {
+  return {
+    subject: 'Complete your project brief',
+    html: shell({
+      heading: 'Complete your project brief',
+      paragraphs: [
+        `Hi ${escape(clientName || 'there')},`,
+        `We're ready to start building your site but we're still waiting for your project brief.`,
+        `It only takes 10–15 minutes and makes a huge difference to the final result.`,
+        `It's been ${escape(String(days || 5))} days since you signed up — let's get this moving!`,
+      ],
+      ctaLabel: 'Complete your brief →',
+    }),
+  }
+}
+
 function stageChangeEmail({ clientName, newStage }) {
   const message = STAGE_MESSAGES[newStage] || `Your project has moved to: ${newStage}`
   return {
@@ -198,6 +214,8 @@ export default async function handler(req, res) {
       template = requestReplyEmail({ clientName, requestTitle })
     } else if (type === 'stage_change') {
       template = stageChangeEmail({ clientName, newStage: payload?.new_stage })
+    } else if (type === 'brief_reminder') {
+      template = briefReminderEmail({ clientName: payload?.client_name || clientName, days: payload?.days })
     } else {
       return res.status(400).json({ ok: false, error: `Unknown type: ${type}` })
     }

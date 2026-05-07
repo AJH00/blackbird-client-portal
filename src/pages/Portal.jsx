@@ -488,6 +488,163 @@ function UpdateDetailsModal({ profile, onSave, onClose }) {
   )
 }
 
+// ─── APPROVAL SECTION ────────────────────────────────────────────────────────
+function ApprovalSection({ client, project, onApproved }) {
+  const [confirming, setConfirming] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError]           = useState('')
+
+  const previewUrl = client.domain
+    ? (client.domain.startsWith('http') ? client.domain : `https://${client.domain}`)
+    : null
+
+  const approve = async () => {
+    setSubmitting(true)
+    setError('')
+    try {
+      const r = await fetch(`${DASHBOARD_API}/api/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve', project_id: project.id }),
+      })
+      const data = await r.json()
+      if (!r.ok || data.error) {
+        setError(data.error || 'Approval failed. Please try again.')
+        setSubmitting(false)
+        return
+      }
+      onApproved()
+    } catch (e) {
+      setError(`Approval failed: ${e.message}`)
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="card border-cyan-900/40 bg-cyan-900/5">
+      <p className="section-title text-cyan-400 mb-2">Your site is ready to review</p>
+      <p className="text-xs text-zinc-400 leading-relaxed mb-4">
+        Have a look through your site. When you're happy, approve it and we'll start the go-live process.
+        Need changes? Submit a revision request below and we'll make them.
+      </p>
+
+      <div className="flex flex-col sm:flex-row gap-2 mb-3">
+        {previewUrl && (
+          <a
+            href={previewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-primary text-sm py-2 px-4 text-center"
+          >
+            View site preview →
+          </a>
+        )}
+        {!confirming ? (
+          <button
+            onClick={() => setConfirming(true)}
+            className="text-sm py-2 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition-colors"
+          >
+            Approve site →
+          </button>
+        ) : null}
+      </div>
+
+      {confirming && (
+        <div className="bg-emerald-900/10 border border-emerald-900/40 rounded-lg p-4 mt-3">
+          <p className="text-sm font-semibold text-emerald-400 mb-1">Are you sure you're happy with the site and ready to go live?</p>
+          <p className="text-xs text-zinc-500 mb-3">After approving we'll prepare the site to go live. You can still request changes after launch using credits.</p>
+          {error && <p className="text-xs text-red-400 mb-2">{error}</p>}
+          <div className="flex gap-2">
+            <button
+              onClick={approve}
+              disabled={submitting}
+              className="text-sm py-2 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition-colors disabled:opacity-50"
+            >
+              {submitting ? 'Approving…' : 'Confirm approval'}
+            </button>
+            <button
+              onClick={() => { setConfirming(false); setError('') }}
+              disabled={submitting}
+              className="text-sm py-2 px-4 rounded-lg border border-zinc-700 text-zinc-400 hover:bg-zinc-800 transition-colors disabled:opacity-50"
+            >
+              Go back
+            </button>
+          </div>
+        </div>
+      )}
+
+      <p className="text-[11px] text-zinc-600 mt-3">Not quite right? Submit a revision request below and we'll make the changes.</p>
+    </div>
+  )
+}
+
+// ─── CREDIT TOP-UP BANNER ────────────────────────────────────────────────────
+function CreditTopUpBanner({ client, creditsRemaining, onRequested }) {
+  const [submitting, setSubmitting] = useState(false)
+  const [sent, setSent]             = useState(false)
+  const [error, setError]           = useState('')
+
+  const requestTopUp = async () => {
+    setSubmitting(true)
+    setError('')
+    try {
+      const { error: insertErr } = await supabase.from('tasks').insert({
+        text: `Credit top-up request from ${client.name}`,
+        assignee: 'Rob', priority: 'Medium',
+        status: 'todo', done: false,
+        project: 'Client Results', category: 'Client',
+        client_id: client.id,
+        description: `${client.name} has ${creditsRemaining} credits remaining and has requested a top-up.`,
+        due_date: new Date().toISOString().slice(0, 10),
+      })
+      if (insertErr) throw insertErr
+      setSent(true)
+      onRequested?.()
+    } catch (e) {
+      setError(`Could not send: ${e.message}`)
+    }
+    setSubmitting(false)
+  }
+
+  if (sent) {
+    return (
+      <div className="card border-emerald-900/40 bg-emerald-900/5">
+        <p className="text-sm font-semibold text-emerald-400 mb-1">Top-up request sent</p>
+        <p className="text-xs text-zinc-400">Rob will be in touch within 1 business day.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="card border-amber-900/40 bg-amber-900/5">
+      <p className="section-title text-amber-400 mb-2">Running low on credits</p>
+      <p className="text-xs text-zinc-400 mb-3">
+        You have <span className="text-amber-400 font-semibold">{creditsRemaining} credit{creditsRemaining !== 1 ? 's' : ''}</span> remaining. To top up, contact your account manager.
+      </p>
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        {[
+          { credits: 10, price: 50 },
+          { credits: 20, price: 80 },
+          { credits: 30, price: 120 },
+        ].map(p => (
+          <div key={p.credits} className="bg-zinc-900/60 border border-zinc-800 rounded-lg px-3 py-2 text-center">
+            <p className="text-sm font-bold text-zinc-200">{p.credits} credits</p>
+            <p className="text-xs text-amber-400 font-semibold">£{p.price}</p>
+          </div>
+        ))}
+      </div>
+      {error && <p className="text-xs text-red-400 mb-2">{error}</p>}
+      <button
+        onClick={requestTopUp}
+        disabled={submitting}
+        className="btn-primary text-sm py-2 w-full disabled:opacity-50"
+      >
+        {submitting ? 'Sending…' : 'Request top-up'}
+      </button>
+    </div>
+  )
+}
+
 // ─── PROJECT STATUS CARD ──────────────────────────────────────────────────────
 function ProjectStatusCard({ project, notes, brief, loading }) {
   if (loading) {
@@ -984,6 +1141,26 @@ export default function Portal({ session }) {
 
         {/* Project status */}
         <ProjectStatusCard project={project} notes={notes} brief={brief} loading={!projectLoaded} />
+
+        {/* Approval section — only when site is in Client Review */}
+        {project?.stage === 'Client Review' && (
+          <ApprovalSection
+            client={client}
+            project={project}
+            onApproved={() => {
+              setProject(p => p ? { ...p, stage: 'Approved' } : p)
+              fetchProjectData(client.id)
+            }}
+          />
+        )}
+
+        {/* Low-credit top-up banner */}
+        {creditsRemaining < 5 && project && (
+          <CreditTopUpBanner
+            client={client}
+            creditsRemaining={creditsRemaining}
+          />
+        )}
 
         {/* Project updates feed */}
         {(projectLoaded ? notes.length > 0 : true) && (
