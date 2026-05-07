@@ -2,8 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
 const DASHBOARD_API = 'https://dashboard.blackbird-marketing.uk'
+// eslint-disable-next-line no-undef
+const BUILD_STAMP = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : 'dev'
 const STEPS = ['Welcome', 'Business Details', 'Brand & Style', 'Target & Goals', 'Images', 'Review & Submit']
 const DEADLINE_OPTIONS = ['ASAP', 'Within 2 weeks', 'Within a month', 'No rush']
+
+const TONE_OPTIONS = ['Professional', 'Friendly', 'Technical', 'Casual']
+const MAIN_GOAL_OPTIONS = ['Get phone calls', 'Get form enquiries', 'Showcase work', 'All of the above']
 
 const INITIAL_FORM = {
   business_name: '', tagline: '', primary_service: '',
@@ -18,6 +23,13 @@ const INITIAL_FORM = {
   must_include: '', must_avoid: '',
   deadline_preference: 'ASAP', additional_notes: '',
   _images: [],
+  // New Step 2 fields
+  years_in_business: '', accreditations: '', awards: '', opening_hours: '',
+  // New Step 3 fields
+  brand_guidelines_url: '', tone_of_voice: '', hated_sites: '',
+  // New Step 4 fields
+  main_goal: '', existing_content_keep: '', customer_love: '',
+  google_reviews: '', legal_requirements: '',
 }
 
 function draftKey(clientId) { return `bb_brief_${clientId}` }
@@ -40,6 +52,36 @@ function loadDraft(clientId) {
 
 function clearDraft(clientId) { localStorage.removeItem(draftKey(clientId)) }
 
+function getStepErrors(step, form) {
+  const errs = {}
+  if (step === 2) {
+    if (!form.business_name.trim())                errs.business_name   = 'This field is required'
+    if (!form.primary_service.trim())              errs.primary_service = 'This field is required'
+    if (!form.target_areas.some(a => a.trim()))    errs.target_areas    = 'Add at least one area you cover'
+    if (!form.contact_details.phone.trim())        errs.phone           = 'This field is required'
+    if (!form.contact_details.email.trim())        errs.email           = 'This field is required'
+  }
+  if (step === 3) {
+    if (!form.reference_sites.some(s => s.url.trim())) errs.reference_sites   = 'Add at least one reference website'
+    if (!form.things_they_like.trim())                  errs.things_they_like   = 'This field is required'
+    if (!form.things_they_dislike.trim())               errs.things_they_dislike = 'This field is required'
+  }
+  if (step === 4) {
+    if (!form.target_customer.trim())        errs.target_customer        = 'This field is required'
+    if (!form.unique_selling_points.trim())  errs.unique_selling_points  = 'This field is required'
+    if (!form.must_include.trim())           errs.must_include           = 'This field is required'
+  }
+  if (step === 5) {
+    if (form._images.length < 3) errs._images = `Please upload at least 3 images (you have ${form._images.length})`
+  }
+  return errs
+}
+
+function isStepComplete(step, form) {
+  if (step === 1) return true
+  return Object.keys(getStepErrors(step, form)).length === 0
+}
+
 export default function BriefOnboarding({ client, session, onComplete }) {
   const [step, setStep] = useState(1)
   const [form, setForm] = useState({ ...INITIAL_FORM, business_name: client.name || '' })
@@ -47,7 +89,13 @@ export default function BriefOnboarding({ client, session, onComplete }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [hasDraft, setHasDraft] = useState(false)
+  const [showErrors, setShowErrors] = useState(false)
+  const [draftFlash, setDraftFlash] = useState(false)
+  const [confirmation, setConfirmation] = useState(null)
   const lastSaved = useRef(Date.now())
+
+  const stepErrors = getStepErrors(step, form)
+  const inlineErrors = showErrors ? stepErrors : {}
 
   useEffect(() => {
     const draft = loadDraft(client.id)
@@ -107,9 +155,17 @@ export default function BriefOnboarding({ client, session, onComplete }) {
 
   const submit = async () => {
     setError('')
-    if (!form.business_name.trim()) { setError('Business name is required.'); setStep(2); return }
-    if (!form.primary_service.trim()) { setError('Primary service is required.'); setStep(2); return }
-    if (!form.target_customer.trim()) { setError('Please describe your ideal customer.'); setStep(4); return }
+    // Re-validate all required steps before sending
+    for (const s of [2, 3, 4, 5]) {
+      const errs = getStepErrors(s, form)
+      if (Object.keys(errs).length > 0) {
+        const firstMessage = errs[Object.keys(errs)[0]]
+        setError(`Step ${s}: ${firstMessage}`)
+        setShowErrors(true)
+        setStep(s)
+        return
+      }
+    }
 
     setSubmitting(true)
     try {
@@ -141,28 +197,103 @@ export default function BriefOnboarding({ client, session, onComplete }) {
         additional_notes: form.additional_notes.trim(),
         images_uploaded: form._images.map(i => i.url),
         image_labels: imageLabelMap,
+        // New fields
+        years_in_business: form.years_in_business.trim() || null,
+        accreditations: form.accreditations.trim() || null,
+        awards: form.awards.trim() || null,
+        opening_hours: form.opening_hours.trim() || null,
+        brand_guidelines_url: form.brand_guidelines_url.trim() || null,
+        tone_of_voice: form.tone_of_voice || null,
+        hated_sites: form.hated_sites.trim() || null,
+        main_goal: form.main_goal || null,
+        existing_content_keep: form.existing_content_keep.trim() || null,
+        customer_love: form.customer_love.trim() || null,
+        google_reviews: form.google_reviews.trim() || null,
+        legal_requirements: form.legal_requirements.trim() || null,
       }
 
-      const res = await fetch(`${DASHBOARD_API}/api/projects`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Submission failed — please try again.'); setSubmitting(false); return }
+      const headers = { 'Content-Type': 'application/json' }
+      if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`
+
+      let res
+      try {
+        res = await fetch(`${DASHBOARD_API}/api/projects`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+        })
+      } catch (netErr) {
+        console.error('[brief submit] network error:', netErr)
+        setError(`Submission failed: ${netErr.message || 'network error'}. Please try again or contact your account manager.`)
+        setSubmitting(false)
+        return
+      }
+
+      let data = null
+      const text = await res.text()
+      try { data = text ? JSON.parse(text) : null } catch {
+        console.error('[brief submit] non-JSON response:', text?.slice(0, 500))
+      }
+
+      if (!res.ok || (data && data.ok === false)) {
+        const reason = data?.error || `HTTP ${res.status} — ${text?.slice(0, 200) || res.statusText}`
+        console.error('[brief submit] failure:', reason)
+        setError(`Submission failed: ${reason}. Please try again or contact your account manager.`)
+        setSubmitting(false)
+        return
+      }
+
       clearDraft(client.id)
-      onComplete()
+      setSubmitting(false)
+      setConfirmation(data || { ok: true })
     } catch (e) {
-      setError('Network error — please try again.')
+      console.error('[brief submit] unexpected:', e)
+      setError(`Submission failed: ${e?.message || 'unexpected error'}. Please try again or contact your account manager.`)
       setSubmitting(false)
     }
   }
 
-  const progress = ((step - 1) / (STEPS.length - 1)) * 100
+  if (confirmation) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center p-4">
+        <div className="max-w-md w-full">
+          <div className="card border-purple/20 bg-purple/5 text-center">
+            <div className="text-4xl mb-3">🎉</div>
+            <h2 className="text-lg font-bold text-zinc-100 mb-2">Brief received!</h2>
+            <p className="text-sm text-zinc-400 leading-relaxed mb-2">
+              We'll review it and be in touch within 24 hours. You'll get a WhatsApp update when we begin building.
+            </p>
+            <p className="text-xs text-zinc-500 leading-relaxed mb-6">
+              In the meantime, log back in any time to check your project status.
+            </p>
+            <button onClick={onComplete} className="btn-primary w-full justify-center py-2.5 text-sm">
+              Back to your portal
+            </button>
+            {confirmation.completeness_score != null && (
+              <p className="text-[10px] text-zinc-700 mt-3">
+                Completeness: {confirmation.completeness_score}%
+                {confirmation.missing?.length > 0 && ` · ${confirmation.missing.length} optional field(s) skipped`}
+              </p>
+            )}
+          </div>
+          <p className="text-center text-[10px] text-zinc-800 font-mono mt-3">build {BUILD_STAMP}</p>
+        </div>
+      </div>
+    )
+  }
 
-  const canContinue = () => {
-    if (step === 2) return form.business_name.trim().length > 0 && form.primary_service.trim().length > 0
-    return true
+  const progress = ((step - 1) / (STEPS.length - 1)) * 100
+  const tryAdvance = () => {
+    const errs = getStepErrors(step, form)
+    if (Object.keys(errs).length > 0) {
+      setShowErrors(true)
+      setError('Please fill in the required fields before continuing.')
+      return
+    }
+    setShowErrors(false)
+    setError('')
+    saveDraft(client.id, form, step + 1)
+    setStep(s => s + 1)
   }
 
   return (
@@ -181,9 +312,16 @@ export default function BriefOnboarding({ client, session, onComplete }) {
           </div>
           <div className="flex items-center gap-4">
             {step > 1 && (
-              <button onClick={() => { saveDraft(client.id, form, step); setHasDraft(true) }}
-                className="text-xs text-zinc-600 hover:text-zinc-300 transition-colors">
-                Save draft
+              <button onClick={() => {
+                  saveDraft(client.id, form, step)
+                  setHasDraft(true)
+                  setDraftFlash(true)
+                  setTimeout(() => setDraftFlash(false), 2000)
+                }}
+                className={`text-xs transition-colors ${
+                  draftFlash ? 'text-emerald-400' : 'text-zinc-600 hover:text-zinc-300'
+                }`}>
+                {draftFlash ? '✓ Saved' : 'Save draft'}
               </button>
             )}
             <button onClick={signOut} className="text-xs text-zinc-600 hover:text-zinc-300 transition-colors">Sign out</button>
@@ -203,13 +341,28 @@ export default function BriefOnboarding({ client, session, onComplete }) {
             <h1 className="text-lg font-bold text-zinc-100">{STEPS[step - 1]}</h1>
           </div>
           <div className="flex items-center gap-1">
-            {STEPS.map((_, i) => (
-              <div key={i} className={`rounded-full transition-all ${
-                i + 1 < step ? 'w-2 h-2 bg-purple' :
-                i + 1 === step ? 'w-2.5 h-2.5 bg-purple ring-2 ring-purple/30' :
-                'w-2 h-2 bg-zinc-800'
-              }`} />
-            ))}
+            {STEPS.map((_, i) => {
+              const sNum = i + 1
+              const complete = sNum < step && isStepComplete(sNum, form)
+              const isCurrent = sNum === step
+              if (complete) {
+                return (
+                  <div key={i} title={`${STEPS[i]} — complete`}
+                    className="w-3.5 h-3.5 rounded-full bg-emerald-500/80 flex items-center justify-center">
+                    <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                      <path d="M1 4l2 2 4-4" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+                )
+              }
+              return (
+                <div key={i} title={STEPS[i]} className={`rounded-full transition-all ${
+                  isCurrent ? 'w-2.5 h-2.5 bg-purple ring-2 ring-purple/30' :
+                  sNum < step ? 'w-2 h-2 bg-amber-500/70' :
+                  'w-2 h-2 bg-zinc-800'
+                }`} />
+              )
+            })}
           </div>
         </div>
 
@@ -221,23 +374,20 @@ export default function BriefOnboarding({ client, session, onComplete }) {
 
         {/* Step content */}
         {step === 1 && <Step1Welcome clientName={client.name} onContinue={() => setStep(2)} hasDraft={hasDraft} />}
-        {step === 2 && <Step2Business form={form} upd={upd} updNested={updNested} />}
-        {step === 3 && <Step3Brand form={form} upd={upd} uploading={uploading} onLogoUpload={uploadLogo} />}
-        {step === 4 && <Step4Target form={form} upd={upd} />}
-        {step === 5 && <Step5Images form={form} upd={upd} uploading={uploading} onUpload={uploadImages} onRemove={removeImage} onLabel={updateImageLabel} />}
+        {step === 2 && <Step2Business form={form} upd={upd} updNested={updNested} errors={inlineErrors} />}
+        {step === 3 && <Step3Brand form={form} upd={upd} uploading={uploading} onLogoUpload={uploadLogo} errors={inlineErrors} />}
+        {step === 4 && <Step4Target form={form} upd={upd} errors={inlineErrors} />}
+        {step === 5 && <Step5Images form={form} upd={upd} uploading={uploading} onUpload={uploadImages} onRemove={removeImage} onLabel={updateImageLabel} errors={inlineErrors} />}
         {step === 6 && <Step6Review form={form} onEdit={setStep} />}
 
         {/* Navigation */}
         {step > 1 && (
           <div className="flex items-center justify-between mt-8 pt-6 border-t border-border">
-            <button onClick={() => { setError(''); setStep(s => s - 1) }} className="btn-secondary">
+            <button onClick={() => { setError(''); setShowErrors(false); setStep(s => s - 1) }} className="btn-secondary">
               ← Back
             </button>
             {step < STEPS.length ? (
-              <button
-                onClick={() => { if (canContinue()) { setError(''); saveDraft(client.id, form, step + 1); setStep(s => s + 1) } else setError('Please fill in the required fields before continuing.') }}
-                className="btn-primary"
-              >
+              <button onClick={tryAdvance} className="btn-primary">
                 Continue →
               </button>
             ) : (
@@ -252,6 +402,8 @@ export default function BriefOnboarding({ client, session, onComplete }) {
             )}
           </div>
         )}
+
+        <p className="text-center text-[10px] text-zinc-800 font-mono mt-8">build {BUILD_STAMP}</p>
       </main>
     </div>
   )
@@ -306,7 +458,16 @@ function Step1Welcome({ clientName, onContinue, hasDraft }) {
   )
 }
 
-function Step2Business({ form, upd, updNested }) {
+function FieldError({ message }) {
+  if (!message) return null
+  return <p className="text-[11px] text-red-400 mt-1">{message}</p>
+}
+
+function inputCls(err) {
+  return `input${err ? ' border-red-500/60 focus:border-red-500/80' : ''}`
+}
+
+function Step2Business({ form, upd, updNested, errors = {} }) {
   const addArea = () => upd('target_areas', [...form.target_areas, ''])
   const updArea = (i, v) => { const a = [...form.target_areas]; a[i] = v; upd('target_areas', a) }
   const removeArea = (i) => upd('target_areas', form.target_areas.filter((_, j) => j !== i))
@@ -319,7 +480,8 @@ function Step2Business({ form, upd, updNested }) {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="label block mb-1.5">Business name <span className="text-red-400">*</span></label>
-          <input className="input" value={form.business_name} onChange={e => upd('business_name', e.target.value)} placeholder="e.g. Smith Plumbing" />
+          <input className={inputCls(errors.business_name)} value={form.business_name} onChange={e => upd('business_name', e.target.value)} placeholder="e.g. Smith Plumbing" />
+          <FieldError message={errors.business_name} />
         </div>
         <div>
           <label className="label block mb-1.5">Tagline</label>
@@ -329,7 +491,8 @@ function Step2Business({ form, upd, updNested }) {
 
       <div>
         <label className="label block mb-1.5">Primary service <span className="text-red-400">*</span></label>
-        <input className="input" value={form.primary_service} onChange={e => upd('primary_service', e.target.value)} placeholder="e.g. Plumbing, Electrical, Landscaping…" />
+        <input className={inputCls(errors.primary_service)} value={form.primary_service} onChange={e => upd('primary_service', e.target.value)} placeholder="e.g. Plumbing, Electrical, Landscaping…" />
+        <FieldError message={errors.primary_service} />
       </div>
 
       <div>
@@ -354,38 +517,64 @@ function Step2Business({ form, upd, updNested }) {
 
       <div>
         <div className="flex items-center justify-between mb-1.5">
-          <label className="label">Areas you cover</label>
+          <label className="label">Areas you cover <span className="text-red-400">*</span></label>
           <button onClick={addArea} className="text-[11px] text-purple-light hover:text-purple transition-colors">+ Add area</button>
         </div>
         {form.target_areas.length === 0 && (
-          <button onClick={addArea} className="w-full text-left px-3 py-2.5 rounded-lg border border-dashed border-zinc-700 text-xs text-zinc-600 hover:border-zinc-600 transition-colors">
+          <button onClick={addArea} className={`w-full text-left px-3 py-2.5 rounded-lg border border-dashed text-xs hover:border-zinc-600 transition-colors ${
+            errors.target_areas ? 'border-red-500/60 text-red-400' : 'border-zinc-700 text-zinc-600'
+          }`}>
             + Add an area (e.g. Bristol, Bath, Somerset)
           </button>
         )}
         <div className="space-y-2">
           {form.target_areas.map((a, i) => (
             <div key={i} className="flex gap-2">
-              <input className="input flex-1" value={a} onChange={e => updArea(i, e.target.value)} placeholder="e.g. Bristol" />
+              <input className={inputCls(errors.target_areas && !a.trim()) + ' flex-1'} value={a} onChange={e => updArea(i, e.target.value)} placeholder="e.g. Bristol" />
               <button onClick={() => removeArea(i)} className="text-zinc-600 hover:text-red-400 px-2 transition-colors">×</button>
             </div>
           ))}
         </div>
+        <FieldError message={errors.target_areas} />
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="label block mb-1.5">Phone number</label>
-          <input className="input" value={form.contact_details.phone} onChange={e => updNested('contact_details', 'phone', e.target.value)} placeholder="+44 7700 000000" />
+          <label className="label block mb-1.5">Phone number <span className="text-red-400">*</span></label>
+          <input className={inputCls(errors.phone)} value={form.contact_details.phone} onChange={e => updNested('contact_details', 'phone', e.target.value)} placeholder="+44 7700 000000" />
+          <FieldError message={errors.phone} />
         </div>
         <div>
-          <label className="label block mb-1.5">Email address</label>
-          <input className="input" value={form.contact_details.email} onChange={e => updNested('contact_details', 'email', e.target.value)} placeholder="info@yourbusiness.co.uk" />
+          <label className="label block mb-1.5">Email address <span className="text-red-400">*</span></label>
+          <input className={inputCls(errors.email)} value={form.contact_details.email} onChange={e => updNested('contact_details', 'email', e.target.value)} placeholder="info@yourbusiness.co.uk" />
+          <FieldError message={errors.email} />
         </div>
       </div>
 
       <div>
         <label className="label block mb-1.5">Business address</label>
         <input className="input" value={form.contact_details.address} onChange={e => updNested('contact_details', 'address', e.target.value)} placeholder="e.g. 12 High Street, Bristol, BS1 1AB" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="label block mb-1.5">Years in business</label>
+          <input className="input" value={form.years_in_business} onChange={e => upd('years_in_business', e.target.value)} placeholder="e.g. 12 years" />
+        </div>
+        <div>
+          <label className="label block mb-1.5">Opening hours</label>
+          <input className="input" value={form.opening_hours} onChange={e => upd('opening_hours', e.target.value)} placeholder="e.g. Mon–Fri 8–6, Sat 9–1" />
+        </div>
+      </div>
+
+      <div>
+        <label className="label block mb-1.5">Accreditations or memberships <span className="text-zinc-700 font-normal normal-case">(e.g. Gas Safe, Which? Trusted Trader)</span></label>
+        <textarea className="input resize-none text-sm" rows={2} value={form.accreditations} onChange={e => upd('accreditations', e.target.value)} placeholder="List any registrations, certifications or trade body memberships" />
+      </div>
+
+      <div>
+        <label className="label block mb-1.5">Awards or recognition <span className="text-zinc-700 font-normal normal-case">(optional)</span></label>
+        <textarea className="input resize-none text-sm" rows={2} value={form.awards} onChange={e => upd('awards', e.target.value)} placeholder="e.g. Local Trader of the Year 2024" />
       </div>
 
       <div className="border-t border-border pt-5">
@@ -408,7 +597,7 @@ function Step2Business({ form, upd, updNested }) {
   )
 }
 
-function Step3Brand({ form, upd, uploading, onLogoUpload }) {
+function Step3Brand({ form, upd, uploading, onLogoUpload, errors = {} }) {
   const [dragging, setDragging] = useState(false)
   const fileRef = useRef(null)
   const logoRef = useRef(null)
@@ -483,7 +672,7 @@ function Step3Brand({ form, upd, uploading, onLogoUpload }) {
 
       <div>
         <div className="flex items-center justify-between mb-2">
-          <label className="label">Reference websites you like</label>
+          <label className="label">Reference websites you like <span className="text-red-400">*</span></label>
           {form.reference_sites.length < 5 && (
             <button onClick={addSite} className="text-[11px] text-purple-light hover:text-purple transition-colors">+ Add</button>
           )}
@@ -491,7 +680,7 @@ function Step3Brand({ form, upd, uploading, onLogoUpload }) {
         <div className="space-y-2">
           {form.reference_sites.map((s, i) => (
             <div key={i} className="flex gap-2">
-              <input className="input flex-1 text-xs font-mono" value={s.url} onChange={e => updateSite(i, 'url', e.target.value)} placeholder="https://example.com" />
+              <input className={inputCls(errors.reference_sites && !form.reference_sites.some(x => x.url.trim())) + ' flex-1 text-xs font-mono'} value={s.url} onChange={e => updateSite(i, 'url', e.target.value)} placeholder="https://example.com" />
               <input className="input w-36 text-xs" value={s.label} onChange={e => updateSite(i, 'label', e.target.value)} placeholder="e.g. Clean design" />
               {form.reference_sites.length > 1 && (
                 <button onClick={() => removeSite(i)} className="text-zinc-600 hover:text-red-400 px-2 transition-colors">×</button>
@@ -499,27 +688,56 @@ function Step3Brand({ form, upd, uploading, onLogoUpload }) {
             </div>
           ))}
         </div>
+        <FieldError message={errors.reference_sites} />
         <p className="text-[10px] text-zinc-700 mt-1.5">Paste URLs of sites you like — and add a note on what you like about each one</p>
       </div>
 
       <div>
-        <label className="label block mb-1.5">What do you like about those sites?</label>
-        <textarea className="input resize-none text-sm" rows={3} value={form.things_they_like}
+        <label className="label block mb-1.5">What do you like about those sites? <span className="text-red-400">*</span></label>
+        <textarea className={inputCls(errors.things_they_like) + ' resize-none text-sm'} rows={3} value={form.things_they_like}
           onChange={e => upd('things_they_like', e.target.value)}
           placeholder="e.g. I like the clean layout, strong call-to-action buttons, the photos feel professional…" />
+        <FieldError message={errors.things_they_like} />
       </div>
 
       <div>
-        <label className="label block mb-1.5">What do you want to avoid?</label>
-        <textarea className="input resize-none text-sm" rows={3} value={form.things_they_dislike}
+        <label className="label block mb-1.5">What do you want to avoid? <span className="text-red-400">*</span></label>
+        <textarea className={inputCls(errors.things_they_dislike) + ' resize-none text-sm'} rows={3} value={form.things_they_dislike}
           onChange={e => upd('things_they_dislike', e.target.value)}
           placeholder="e.g. Avoid bright neon colours, avoid too much text, don't use stock photos…" />
+        <FieldError message={errors.things_they_dislike} />
+      </div>
+
+      <div>
+        <label className="label block mb-1.5">Tone of voice</label>
+        <div className="flex flex-wrap gap-2">
+          {TONE_OPTIONS.map(opt => (
+            <button key={opt} type="button" onClick={() => upd('tone_of_voice', opt)}
+              className={`text-xs px-3 py-1.5 rounded-lg border transition-all ${
+                form.tone_of_voice === opt
+                  ? 'border-purple/50 bg-purple/20 text-purple-light'
+                  : 'border-border text-zinc-500 hover:border-zinc-700'
+              }`}>
+              {opt}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="label block mb-1.5">Brand guidelines <span className="text-zinc-700 font-normal normal-case">(optional, paste link if you have a doc)</span></label>
+        <input className="input font-mono text-xs" value={form.brand_guidelines_url} onChange={e => upd('brand_guidelines_url', e.target.value)} placeholder="https://drive.google.com/…" />
+      </div>
+
+      <div>
+        <label className="label block mb-1.5">Any websites you hate the look of and why? <span className="text-zinc-700 font-normal normal-case">(optional)</span></label>
+        <textarea className="input resize-none text-sm" rows={2} value={form.hated_sites} onChange={e => upd('hated_sites', e.target.value)} placeholder="e.g. competitor.co.uk — too cluttered, dated colour scheme" />
       </div>
     </div>
   )
 }
 
-function Step4Target({ form, upd }) {
+function Step4Target({ form, upd, errors = {} }) {
   const updateComp = (i, v) => { const c = [...form.competitors]; c[i] = v; upd('competitors', c) }
   const addComp = () => { if (form.competitors.length < 5) upd('competitors', [...form.competitors, '']) }
   const removeComp = (i) => upd('competitors', form.competitors.filter((_, j) => j !== i))
@@ -528,16 +746,18 @@ function Step4Target({ form, upd }) {
     <div className="space-y-5">
       <div>
         <label className="label block mb-1.5">Who is your ideal customer? <span className="text-red-400">*</span></label>
-        <textarea className="input resize-none text-sm" rows={3} value={form.target_customer}
+        <textarea className={inputCls(errors.target_customer) + ' resize-none text-sm'} rows={3} value={form.target_customer}
           onChange={e => upd('target_customer', e.target.value)}
           placeholder="e.g. Homeowners in Bristol aged 30–60 who own their property and need reliable tradespeople they can trust…" />
+        <FieldError message={errors.target_customer} />
       </div>
 
       <div>
-        <label className="label block mb-1.5">What makes you different from competitors?</label>
-        <textarea className="input resize-none text-sm" rows={3} value={form.unique_selling_points}
+        <label className="label block mb-1.5">What makes you different from competitors? <span className="text-red-400">*</span></label>
+        <textarea className={inputCls(errors.unique_selling_points) + ' resize-none text-sm'} rows={3} value={form.unique_selling_points}
           onChange={e => upd('unique_selling_points', e.target.value)}
           placeholder="e.g. We're a family business, same-day callouts, 10 years experience, fully insured and gas safe registered…" />
+        <FieldError message={errors.unique_selling_points} />
       </div>
 
       <div>
@@ -560,10 +780,47 @@ function Step4Target({ form, upd }) {
       </div>
 
       <div>
-        <label className="label block mb-1.5">What must be included on the site?</label>
-        <textarea className="input resize-none text-sm" rows={3} value={form.must_include}
+        <label className="label block mb-1.5">What is the main goal of the website?</label>
+        <div className="flex flex-wrap gap-2">
+          {MAIN_GOAL_OPTIONS.map(opt => (
+            <button key={opt} type="button" onClick={() => upd('main_goal', opt)}
+              className={`text-xs px-3 py-1.5 rounded-lg border transition-all ${
+                form.main_goal === opt
+                  ? 'border-purple/50 bg-purple/20 text-purple-light'
+                  : 'border-border text-zinc-500 hover:border-zinc-700'
+              }`}>
+              {opt}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="label block mb-1.5">What must be included on the site? <span className="text-red-400">*</span></label>
+        <textarea className={inputCls(errors.must_include) + ' resize-none text-sm'} rows={3} value={form.must_include}
           onChange={e => upd('must_include', e.target.value)}
           placeholder="e.g. Gas Safe certificate badge, before/after gallery, Google reviews widget, emergency call-out number…" />
+        <FieldError message={errors.must_include} />
+      </div>
+
+      <div>
+        <label className="label block mb-1.5">Any existing content we should keep? <span className="text-zinc-700 font-normal normal-case">(optional)</span></label>
+        <textarea className="input resize-none text-sm" rows={2} value={form.existing_content_keep} onChange={e => upd('existing_content_keep', e.target.value)} placeholder="e.g. Our 'About' page copy, the photo gallery on the homepage" />
+      </div>
+
+      <div>
+        <label className="label block mb-1.5">What do customers say they love about you? <span className="text-zinc-700 font-normal normal-case">(for testimonials)</span></label>
+        <textarea className="input resize-none text-sm" rows={3} value={form.customer_love} onChange={e => upd('customer_love', e.target.value)} placeholder="e.g. Reliability, fair pricing, friendly team, no surprise costs…" />
+      </div>
+
+      <div>
+        <label className="label block mb-1.5">Any Google reviews we can feature? <span className="text-zinc-700 font-normal normal-case">(optional)</span></label>
+        <textarea className="input resize-none text-sm" rows={2} value={form.google_reviews} onChange={e => upd('google_reviews', e.target.value)} placeholder="Paste a few favourites or link your Google Business profile" />
+      </div>
+
+      <div>
+        <label className="label block mb-1.5">Any legal requirements or disclaimers? <span className="text-zinc-700 font-normal normal-case">(optional)</span></label>
+        <textarea className="input resize-none text-sm" rows={2} value={form.legal_requirements} onChange={e => upd('legal_requirements', e.target.value)} placeholder="e.g. CHAS membership reference, insurance disclaimer, privacy text" />
       </div>
 
       <div>
@@ -599,7 +856,7 @@ function Step4Target({ form, upd }) {
   )
 }
 
-function Step5Images({ form, upd, uploading, onUpload, onRemove, onLabel }) {
+function Step5Images({ form, upd, uploading, onUpload, onRemove, onLabel, errors = {} }) {
   const [dragging, setDragging] = useState(false)
   const fileRef = useRef(null)
 
@@ -611,14 +868,26 @@ function Step5Images({ form, upd, uploading, onUpload, onRemove, onLabel }) {
   return (
     <div className="space-y-5">
       <div>
-        <p className="text-sm text-zinc-400 leading-relaxed mb-4">
-          Upload any photos you'd like on your site — work photos, team shots, before/after images, your van, anything relevant. Up to 20 images.
-        </p>
+        <div className="card bg-purple/5 border-purple/20 mb-4">
+          <p className="text-sm text-zinc-300 leading-relaxed">
+            Upload photos of your work, your team, or anything that represents your brand.
+            <span className="block text-zinc-400 mt-1">The more you give us, the better your site will be.</span>
+          </p>
+          <p className={`text-xs mt-2 font-medium ${
+            form._images.length >= 3 ? 'text-emerald-400' : 'text-amber-400'
+          }`}>
+            {form._images.length >= 3
+              ? `✓ ${form._images.length} images uploaded — you can add more or continue.`
+              : `${form._images.length} of 3 minimum images uploaded`}
+            <span className="text-red-400 ml-1">*</span>
+          </p>
+        </div>
 
         {form._images.length < 20 && (
           <div
             className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
-              dragging ? 'border-purple/60 bg-purple/5' : 'border-zinc-700 hover:border-zinc-600'
+              dragging ? 'border-purple/60 bg-purple/5' :
+              errors._images ? 'border-red-500/60' : 'border-zinc-700 hover:border-zinc-600'
             }`}
             onClick={() => fileRef.current?.click()}
             onDragOver={e => { e.preventDefault(); setDragging(true) }}
@@ -666,8 +935,10 @@ function Step5Images({ form, upd, uploading, onUpload, onRemove, onLabel }) {
         )}
 
         {form._images.length === 0 && !uploading && (
-          <p className="text-xs text-zinc-600 mt-3 text-center">No images uploaded yet — you can skip this step if you don't have any ready.</p>
+          <p className="text-xs text-zinc-600 mt-3 text-center">No images uploaded yet.</p>
         )}
+
+        <FieldError message={errors._images} />
       </div>
     </div>
   )

@@ -1,11 +1,15 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 
+const PORTAL_URL = 'https://portal.blackbird-marketing.uk'
+
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [resetSent, setResetSent] = useState(false)
+  const [resetting, setResetting] = useState(false)
 
   const handleLogin = async e => {
     e.preventDefault()
@@ -14,6 +18,15 @@ export default function Login() {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) setError(error.message)
     setLoading(false)
+  }
+
+  const handleReset = async () => {
+    if (!email) { setError('Enter your email above first.'); return }
+    setResetting(true); setError('')
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: PORTAL_URL })
+    if (error) setError(error.message)
+    else setResetSent(true)
+    setResetting(false)
   }
 
   return (
@@ -75,6 +88,17 @@ export default function Login() {
                 </span>
               ) : 'Sign in'}
             </button>
+
+            {resetSent ? (
+              <p className="text-[11px] text-emerald-400 text-center mt-2">
+                Reset email sent. Check your inbox.
+              </p>
+            ) : (
+              <button type="button" onClick={handleReset} disabled={resetting}
+                className="block mx-auto text-[11px] text-zinc-600 hover:text-zinc-400 transition-colors mt-2 disabled:opacity-50">
+                {resetting ? 'Sending reset…' : 'Forgot password?'}
+              </button>
+            )}
           </form>
         </div>
 
