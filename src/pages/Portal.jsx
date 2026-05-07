@@ -16,28 +16,34 @@ const CREDIT_TYPES = [
 ]
 
 const STAGE_LABELS = {
-  'Brief Pending':     "We're waiting for your brief",
-  'Brief Received':    "We're reviewing your brief",
-  'Build In Progress': "We're building your site",
-  'Internal QC':       "We're quality checking your site",
-  'Client Review':     "Your site is ready to review",
-  'Revisions':         "We're making your changes",
-  'Approved':          "Your site is approved",
-  'Live':              "Your site is live",
-  'Maintenance':       "Your site is live and maintained",
+  'Brief Pending':         "We're waiting for your brief",
+  'Brief Received':        "We're reviewing your brief",
+  'Build In Progress':     "We're building your site",
+  'Internal QC':           "We're quality checking your site",
+  'Client Review':         "Your site is ready to review",
+  'Revisions':             "We're making your changes",
+  'Approved':              "Your site is approved",
+  'Live':                  "Your site is live",
+  'Maintenance':           "Your site is live and maintained",
+  'No Longer Maintaining': "Your project has been completed",
+  'Dead':                  "Your project has been completed",
 }
 
 const STAGE_NEXT = {
-  'Brief Pending':     "Complete your brief to get started",
-  'Brief Received':    "We'll confirm your brief within 24 hours",
-  'Build In Progress': "We'll send you a preview to review",
-  'Internal QC':       "Quality checks in progress",
-  'Client Review':     "Review your site and submit any changes",
-  'Revisions':         "Changes being made — preview coming soon",
-  'Approved':          "Final checks before going live",
-  'Live':              "Your site is live — well done!",
-  'Maintenance':       "Ongoing support and updates",
+  'Brief Pending':         "Complete your brief to get started",
+  'Brief Received':        "We'll confirm your brief within 24 hours",
+  'Build In Progress':     "We'll send you a preview to review",
+  'Internal QC':           "Quality checks in progress",
+  'Client Review':         "Review your site and submit any changes",
+  'Revisions':             "Changes being made — preview coming soon",
+  'Approved':              "Final checks before going live",
+  'Live':                  "Your site is live — well done!",
+  'Maintenance':           "Ongoing support and updates",
+  'No Longer Maintaining': "Contact us to restart at any time",
+  'Dead':                  "Contact us to restart at any time",
 }
+
+const STAGE_COMPLETED = new Set(['No Longer Maintaining', 'Dead'])
 
 const PIPELINE = [
   { label: 'Brief',  stages: ['Brief Pending', 'Brief Received'] },
@@ -685,6 +691,19 @@ function ProjectStatusCard({ project, notes, brief, loading }) {
   const nextStep    = STAGE_NEXT[project.stage] || ''
   const pipelineIdx = PIPELINE.findIndex(p => p.stages.includes(project.stage))
   const latestNote  = notes?.[0]
+  const isCompleted = STAGE_COMPLETED.has(project.stage)
+
+  if (isCompleted) {
+    return (
+      <div className="card">
+        <p className="section-title mb-3">Your Project</p>
+        <div className="bg-zinc-900 rounded-lg p-4">
+          <p className="text-sm font-semibold text-zinc-200 mb-1">Your project has been completed.</p>
+          <p className="text-xs text-zinc-400 leading-relaxed">Contact us to restart at any time.</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="card">
