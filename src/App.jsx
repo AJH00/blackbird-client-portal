@@ -20,14 +20,20 @@ export default function App() {
       const params = new URLSearchParams(window.location.search)
       const fromQuery = params.get('admin_view') === 'true'
       const stored = sessionStorage.getItem('bb_admin_view') === 'true'
+      const queryClient = params.get('client') || ''
+      const storedClient = sessionStorage.getItem('bb_admin_view_client') || ''
       if (fromQuery) {
         sessionStorage.setItem('bb_admin_view', 'true')
+        if (queryClient) sessionStorage.setItem('bb_admin_view_client', queryClient)
         setAdminView(true)
+        setAdminViewClientName(queryClient || storedClient)
         const url = new URL(window.location.href)
         url.searchParams.delete('admin_view')
+        url.searchParams.delete('client')
         window.history.replaceState({}, '', url.toString())
       } else if (stored) {
         setAdminView(true)
+        setAdminViewClientName(storedClient)
       }
     } catch {}
 
@@ -42,23 +48,13 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  // RECONSTRUCTED — verify this. Original WIP set adminViewClientName from a
-  // source I never observed. Most likely from a second URL param (eg ?client=)
-  // or from the impersonated session's profile row. Wiring it to the profile
-  // name once the session loads is the safest default until you confirm intent.
-  useEffect(() => {
-    if (!adminView) return
-    if (!session?.user?.id) return
-    supabase.from('profiles').select('name, display_name').eq('id', session.user.id).maybeSingle()
-      .then(({ data }) => { setAdminViewClientName(data?.display_name || data?.name || '') })
-  }, [adminView, session?.user?.id])
-
-  // RECONSTRUCTED — verify this. Original WIP almost certainly had an "Exit
-  // admin view" action; this is the minimal version that clears the persisted
-  // flag and reloads back to a normal client view.
   const exitAdminView = () => {
-    try { sessionStorage.removeItem('bb_admin_view') } catch {}
+    try {
+      sessionStorage.removeItem('bb_admin_view')
+      sessionStorage.removeItem('bb_admin_view_client')
+    } catch {}
     setAdminView(false)
+    setAdminViewClientName('')
     window.location.replace(window.location.pathname)
   }
 
