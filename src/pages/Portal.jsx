@@ -652,7 +652,7 @@ function CreditTopUpBanner({ client, creditsRemaining, onRequested }) {
 }
 
 // ─── PROJECT STATUS CARD ──────────────────────────────────────────────────────
-function ProjectStatusCard({ project, notes, brief, loading }) {
+function ProjectStatusCard({ project, notes, brief, client, loading }) {
   if (loading) {
     return (
       <div className="card">
@@ -768,6 +768,36 @@ function ProjectStatusCard({ project, notes, brief, loading }) {
         <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border">
           <p className="text-[11px] text-zinc-600">Target launch date:</p>
           <p className="text-[11px] font-semibold text-zinc-400">{fmtDate(project.target_date)}</p>
+        </div>
+      )}
+
+      {/* Live website URL — shows once domain is set on the client */}
+      {client?.domain ? (
+        <div className="mt-3 pt-3 border-t border-border">
+          <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mb-1.5">🌐 Your website</p>
+          <a
+            href={(client.domain.startsWith('http') ? client.domain : `https://${client.domain}`)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm text-purple-light hover:underline"
+          >
+            View live site →
+          </a>
+          <p className="text-[10px] text-zinc-600 mt-0.5 font-mono">{client.domain.replace(/^https?:\/\/(www\.)?/, '')}</p>
+        </div>
+      ) : (
+        <div className="mt-3 pt-3 border-t border-border">
+          <p className="text-[11px] text-zinc-500">Your website URL will appear here once your site is ready.</p>
+        </div>
+      )}
+
+      {/* Client Review guidance */}
+      {(project.stage === 'Client Review' || project.stage === 'Awaiting Client Feedback') && (
+        <div className="mt-3 rounded-lg border border-amber-900/40 bg-amber-950/20 p-3">
+          <p className="text-sm font-semibold text-amber-300 mb-1">Your site is ready for your review.</p>
+          <p className="text-xs text-zinc-400 leading-relaxed">
+            Check each page carefully and use the button below to request any changes.
+          </p>
         </div>
       )}
     </div>
@@ -1159,7 +1189,7 @@ export default function Portal({ session }) {
         )}
 
         {/* Project status */}
-        <ProjectStatusCard project={project} notes={notes} brief={brief} loading={!projectLoaded} />
+        <ProjectStatusCard project={project} notes={notes} brief={brief} client={client} loading={!projectLoaded} />
 
         {/* Approval section — only when site is in Client Review */}
         {project?.stage === 'Client Review' && (
@@ -1467,22 +1497,21 @@ function RequestChatModal({ req, senderName, onClose }) {
           ))}
           <div ref={bottomRef} />
         </div>
-        {req.status !== 'done' ? (
-          <div className="px-4 py-3 border-t border-border flex-shrink-0">
-            <div className="flex gap-2">
-              <textarea className="flex-1 bg-zinc-900 border border-border rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-purple/50 resize-none" rows={2}
-                placeholder="Reply to Blackbird…" value={text} onChange={e => setText(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} />
-              <button onClick={send} disabled={!text.trim() || sending} className="btn-primary px-4 self-end text-sm disabled:opacity-50">
-                {sending ? '…' : 'Send'}
-              </button>
-            </div>
+        <div className="px-4 py-3 border-t border-border flex-shrink-0">
+          {req.status === 'done' && (
+            <p className="text-[11px] text-zinc-600 text-center mb-2">
+              Marked resolved — you can still reply if there's anything more we should know.
+            </p>
+          )}
+          <div className="flex gap-2">
+            <textarea className="flex-1 bg-zinc-900 border border-border rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-purple/50 resize-none" rows={2}
+              placeholder="Reply to Blackbird…" value={text} onChange={e => setText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} />
+            <button onClick={send} disabled={!text.trim() || sending} className="btn-primary px-4 self-end text-sm disabled:opacity-50">
+              {sending ? '…' : 'Send'}
+            </button>
           </div>
-        ) : (
-          <div className="px-4 py-3 border-t border-border flex-shrink-0">
-            <p className="text-xs text-zinc-600 text-center">This request has been resolved. Submit a new request if you need further help.</p>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   )

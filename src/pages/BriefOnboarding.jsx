@@ -34,15 +34,20 @@ const INITIAL_FORM = {
 
 function draftKey(clientId) { return `bb_brief_${clientId}` }
 
+// Saves to BOTH sessionStorage (survives tab switches, cleared on tab close)
+// and localStorage (survives across sessions). sessionStorage is preferred
+// on reload because it's the most recent in-tab state.
 function saveDraft(clientId, form, step) {
   const { _images, ...rest } = form
   const safe = { ...rest, _imageUrls: _images.map(i => ({ url: i.url, label: i.label })) }
-  localStorage.setItem(draftKey(clientId), JSON.stringify({ form: safe, step }))
+  const payload = JSON.stringify({ form: safe, step })
+  try { sessionStorage.setItem(draftKey(clientId), payload) } catch { /* quota or disabled */ }
+  try { localStorage.setItem(draftKey(clientId), payload) } catch { /* quota or disabled */ }
 }
 
 function loadDraft(clientId) {
   try {
-    const raw = localStorage.getItem(draftKey(clientId))
+    const raw = sessionStorage.getItem(draftKey(clientId)) || localStorage.getItem(draftKey(clientId))
     if (!raw) return null
     const { form, step } = JSON.parse(raw)
     const restored = { ...INITIAL_FORM, ...form, _images: (form._imageUrls || []).map(i => ({ ...i, uploading: false })) }
@@ -50,7 +55,10 @@ function loadDraft(clientId) {
   } catch { return null }
 }
 
-function clearDraft(clientId) { localStorage.removeItem(draftKey(clientId)) }
+function clearDraft(clientId) {
+  try { sessionStorage.removeItem(draftKey(clientId)) } catch {}
+  try { localStorage.removeItem(draftKey(clientId)) } catch {}
+}
 
 function getStepErrors(step, form) {
   const errs = {}
@@ -102,11 +110,24 @@ export default function BriefOnboarding({ client, session, onComplete }) {
     if (draft) { setHasDraft(true); setForm(draft.form); setStep(draft.step) }
   }, [client.id])
 
+  // Debounced save on every form/step change — survives tab switches even
+  // if the user typed since the last interval save. Also includes step 1.
   useEffect(() => {
-    const id = setInterval(() => {
-      if (step > 1) { saveDraft(client.id, form, step); lastSaved.current = Date.now() }
-    }, 30000)
-    return () => clearInterval(id)
+    const timer = setTimeout(() => {
+      saveDraft(client.id, form, step)
+      lastSaved.current = Date.now()
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [client.id, form, step])
+
+  // Save immediately when the tab loses focus (visibility change) — catches
+  // any state newer than the debounced save above.
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') saveDraft(client.id, form, step)
+    }
+    document.addEventListener('visibilitychange', onHide)
+    return () => document.removeEventListener('visibilitychange', onHide)
   }, [client.id, form, step])
 
   const upd = useCallback((key, value) => setForm(f => ({ ...f, [key]: value })), [])
