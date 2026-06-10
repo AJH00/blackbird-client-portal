@@ -21,6 +21,14 @@ const STAGE_MESSAGES = {
   'Live':              "Great news — your site is now live! 🎉 Log in to your portal to see it and track your progress.",
 }
 
+// Terminal/internal stages that must never trigger a client comms email.
+// Matched case-insensitively against both display and snake_case forms.
+const STAGE_CHANGE_NO_EMAIL = new Set([
+  'dead',
+  'no longer maintaining', 'no_longer_maintaining',
+  'maintenance',
+])
+
 function escape(s = '') {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
@@ -213,6 +221,10 @@ export default async function handler(req, res) {
       }
       template = requestReplyEmail({ clientName, requestTitle })
     } else if (type === 'stage_change') {
+      if (STAGE_CHANGE_NO_EMAIL.has(String(payload?.new_stage || '').trim().toLowerCase())) {
+        console.log('[notify] stage_change suppressed (terminal stage)', { client_id, new_stage: payload?.new_stage })
+        return res.json({ ok: true, suppressed: true, reason: 'terminal_stage', new_stage: payload?.new_stage })
+      }
       template = stageChangeEmail({ clientName, newStage: payload?.new_stage })
     } else if (type === 'brief_reminder') {
       template = briefReminderEmail({ clientName: payload?.client_name || clientName, days: payload?.days })
