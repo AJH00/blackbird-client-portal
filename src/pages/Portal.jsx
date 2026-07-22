@@ -1179,6 +1179,19 @@ export default function Portal({ session }) {
 
       <main className="max-w-3xl mx-auto px-4 sm:px-5 py-6 sm:py-8 space-y-6 fade-in-up">
 
+        {/* Account context — a client on a shared device may land here on a
+            stale session (e.g. an earlier business they onboarded). Make the
+            resolved business obvious and give a one-click way to switch. */}
+        <div className="bg-purple/5 border border-purple/20 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <p className="text-sm text-zinc-300">
+            You're viewing <span className="font-bold text-zinc-100">{client.name}</span>
+          </p>
+          <button onClick={signOut}
+            className="text-xs text-purple-light hover:text-purple transition-colors text-left sm:text-right whitespace-normal">
+            Not {client.name}? Sign out &amp; switch account
+          </button>
+        </div>
+
         {submitted && (
           <div className="bg-emerald-900/30 border border-emerald-900/50 rounded-xl px-4 py-3 flex items-center gap-3">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-400 flex-shrink-0">
