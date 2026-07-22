@@ -500,8 +500,10 @@ function ApprovalSection({ client, project, onApproved }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError]           = useState('')
 
-  const previewUrl = client.domain
-    ? (client.domain.startsWith('http') ? client.domain : `https://${client.domain}`)
+  // Preview = the staging/working URL the team builds on; fall back to live domain
+  const rawPreview = project?.working_url || client.domain || ''
+  const previewUrl = rawPreview
+    ? (rawPreview.startsWith('http') ? rawPreview : `https://${rawPreview}`)
     : null
 
   const approve = async () => {
@@ -529,22 +531,27 @@ function ApprovalSection({ client, project, onApproved }) {
   return (
     <div className="card border-cyan-900/40 bg-cyan-900/5">
       <p className="section-title text-cyan-400 mb-2">Your site is ready to review</p>
+
+      {!previewUrl ? (
+        <p className="text-xs text-zinc-400 leading-relaxed">
+          Your preview link is being prepared. We'll notify you when it's ready to review.
+        </p>
+      ) : (
+      <>
       <p className="text-xs text-zinc-400 leading-relaxed mb-4">
         Have a look through your site. When you're happy, approve it and we'll start the go-live process.
         Need changes? Submit a revision request below and we'll make them.
       </p>
 
       <div className="flex flex-col sm:flex-row gap-2 mb-3">
-        {previewUrl && (
-          <a
-            href={previewUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-primary text-sm py-2 px-4 text-center"
-          >
-            View site preview →
-          </a>
-        )}
+        <a
+          href={previewUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-primary text-sm py-2 px-4 text-center"
+        >
+          View site preview →
+        </a>
         {!confirming ? (
           <button
             onClick={() => setConfirming(true)}
@@ -580,6 +587,8 @@ function ApprovalSection({ client, project, onApproved }) {
       )}
 
       <p className="text-[11px] text-zinc-600 mt-3">Not quite right? Submit a revision request below and we'll make the changes.</p>
+      </>
+      )}
     </div>
   )
 }
