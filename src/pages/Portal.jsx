@@ -24,6 +24,9 @@ const STAGE_LABELS = {
   'Revisions':             "We're making your changes",
   'Approved':              "Your site is approved",
   'Live':                  "Your site is live",
+  '30 Days Maintenance':   "Your site is live",
+  'GMB Setup':             "Your site is live",
+  'Directory Setup':       "Your site is live",
   'Maintenance':           "Your site is live and maintained",
   'No Longer Maintaining': "Your project has been completed",
   'Dead':                  "Your project has been completed",
@@ -38,6 +41,9 @@ const STAGE_NEXT = {
   'Revisions':             "Changes being made — preview coming soon",
   'Approved':              "Final checks before going live",
   'Live':                  "Your site is live — well done!",
+  '30 Days Maintenance':   "Ongoing support and updates",
+  'GMB Setup':             "Ongoing support and updates",
+  'Directory Setup':       "Ongoing support and updates",
   'Maintenance':           "Ongoing support and updates",
   'No Longer Maintaining': "Contact us to restart at any time",
   'Dead':                  "Contact us to restart at any time",
@@ -49,7 +55,7 @@ const PIPELINE = [
   { label: 'Brief',  stages: ['Brief Pending', 'Brief Received'] },
   { label: 'Build',  stages: ['Build In Progress', 'Internal QC'] },
   { label: 'Review', stages: ['Client Review', 'Revisions', 'Approved'] },
-  { label: 'Live',   stages: ['Live', 'Maintenance'] },
+  { label: 'Live',   stages: ['Live', 'Maintenance', '30 Days Maintenance', 'GMB Setup', 'Directory Setup'] },
 ]
 
 const TRADE_REQUEST_TYPES = [
@@ -718,7 +724,7 @@ function ProjectStatusCard({ project, notes, brief, client, loading }) {
     <div className="card">
       <div className="flex items-center justify-between mb-4">
         <p className="section-title mb-0">Your Project</p>
-        {project.stage === 'Live' || project.stage === 'Maintenance' ? (
+        {PIPELINE[PIPELINE.length - 1].stages.includes(project.stage) ? (
           <span className="text-[10px] bg-emerald-900/30 text-emerald-400 border border-emerald-900/50 px-2 py-0.5 rounded-full font-semibold">Live</span>
         ) : null}
       </div>

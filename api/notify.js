@@ -27,6 +27,10 @@ const STAGE_CHANGE_NO_EMAIL = new Set([
   'dead',
   'no longer maintaining', 'no_longer_maintaining',
   'maintenance',
+  // Post-Live internal ops stages — client already notified their site is live.
+  '30 days maintenance', '30_days_maintenance',
+  'gmb setup', 'gmb_setup',
+  'directory setup', 'directory_setup',
 ])
 
 function escape(s = '') {
