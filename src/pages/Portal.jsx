@@ -111,10 +111,6 @@ function fmtShort(iso) {
   if (!iso) return ''
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
-function daysSince(iso) {
-  if (!iso) return 0
-  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
-}
 
 // ─── REQUEST MODAL ────────────────────────────────────────────────────────────
 function RequestModal({ client, siteType, openRequests, credits, onSubmit, onClose }) {
@@ -701,7 +697,6 @@ function ProjectStatusCard({ project, notes, brief, client, loading }) {
     )
   }
 
-  const daysInStage = daysSince(project.stage_entered_at)
   const stageLabel  = STAGE_LABELS[project.stage] || project.stage
   const nextStep    = STAGE_NEXT[project.stage] || ''
   const pipelineIdx = PIPELINE.findIndex(p => p.stages.includes(project.stage))
@@ -732,10 +727,7 @@ function ProjectStatusCard({ project, notes, brief, client, loading }) {
       {/* Stage label */}
       <div className="bg-zinc-900 rounded-lg p-3 mb-4">
         <p className="text-sm font-semibold text-zinc-100">{stageLabel}</p>
-        <p className="text-[11px] text-zinc-500 mt-0.5">
-          {daysInStage === 0 ? 'Started today' : `${daysInStage} day${daysInStage !== 1 ? 's' : ''} in this stage`}
-          {nextStep && <> · {nextStep}</>}
-        </p>
+        {nextStep && <p className="text-[11px] text-zinc-500 mt-0.5">{nextStep}</p>}
       </div>
 
       {/* Visual pipeline */}
