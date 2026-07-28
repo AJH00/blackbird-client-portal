@@ -950,7 +950,12 @@ export default function Portal({ session }) {
       setProfile(prof)
 
       const [{ data: clientData }, { data: reqData }] = await Promise.all([
-        supabase.from('clients').select('*').eq('id', prof.client_id).single(),
+        // Explicit column list, never select('*'): the clients row carries ~70
+        // internal columns (mrr, tier, health, gocardless_*, contact cadence).
+        // The client is entitled to their own row, but there is no reason to ship
+        // fields the UI never renders. Credits come from the dashboard API below
+        // (setCredits), not from here. Add a column only when the UI needs it.
+        supabase.from('clients').select('id, name, domain, site_type').eq('id', prof.client_id).single(),
         supabase.from('client_requests').select('*, request_messages(id, sender_type, message, created_at)')
           .eq('client_id', prof.client_id).order('created_at', { ascending: false }),
       ])
