@@ -21,6 +21,29 @@ const STAGE_MESSAGES = {
   'Live':              "Great news — your site is now live! 🎉 Log in to your portal to see it and track your progress.",
 }
 
+// BACKWARD transitions that must not email, keyed old>new.
+//
+// The DB trigger (notify_project_stage) already sends old_stage alongside new_stage,
+// so a reversal is distinguishable from the forward move to the same stage — which
+// matters because the suppress-set below can only see new_stage.
+//
+// Internal QC -> Build In Progress is the QC-reject path. Without this, a client
+// whose build just failed an INTERNAL check receives "We've started building your
+// site. We'll have a first version ready for your review within the next few days."
+// — a second time, reading as a restart and exposing internal churn.
+//
+// The FORWARD Brief Received/Brief Pending -> Build In Progress email is a genuine
+// milestone and is deliberately untouched. Only add pairs here, never a bare stage.
+const BACKWARD_NO_EMAIL = new Set([
+  'internal qc>build in progress',
+  'client review>build in progress',
+  'revisions>build in progress',
+  'approved>build in progress',
+])
+
+const normStage = (s) => String(s || '').trim().toLowerCase().replace(/_/g, ' ')
+const transitionKey = (oldStage, newStage) => `${normStage(oldStage)}>${normStage(newStage)}`
+
 // Terminal/internal stages that must never trigger a client comms email.
 // Matched case-insensitively against both display and snake_case forms.
 const STAGE_CHANGE_NO_EMAIL = new Set([
@@ -228,6 +251,15 @@ export default async function handler(req, res) {
       if (STAGE_CHANGE_NO_EMAIL.has(String(payload?.new_stage || '').trim().toLowerCase())) {
         console.log('[notify] stage_change suppressed (terminal stage)', { client_id, new_stage: payload?.new_stage })
         return res.json({ ok: true, suppressed: true, reason: 'terminal_stage', new_stage: payload?.new_stage })
+      }
+      if (BACKWARD_NO_EMAIL.has(transitionKey(payload?.old_stage, payload?.new_stage))) {
+        console.log('[notify] stage_change suppressed (backward transition)', {
+          client_id, old_stage: payload?.old_stage, new_stage: payload?.new_stage,
+        })
+        return res.json({
+          ok: true, suppressed: true, reason: 'backward_transition',
+          old_stage: payload?.old_stage, new_stage: payload?.new_stage,
+        })
       }
       template = stageChangeEmail({ clientName, newStage: payload?.new_stage })
     } else if (type === 'brief_reminder') {
