@@ -47,6 +47,11 @@ const transitionKey = (oldStage, newStage) => `${normStage(oldStage)}>${normStag
 // Terminal/internal stages that must never trigger a client comms email.
 // Matched case-insensitively against both display and snake_case forms.
 const STAGE_CHANGE_NO_EMAIL = new Set([
+  // Internal ops stage before the brief is requested. The dashboard's closed-won
+  // handler creates every new project here, so without this suppression every new
+  // client would get a "your project moved to Onboarding" email seconds after the
+  // welcome email, for a stage that means nothing to them.
+  'onboarding',
   'dead',
   'no longer maintaining', 'no_longer_maintaining',
   'maintenance',

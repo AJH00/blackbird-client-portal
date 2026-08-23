@@ -16,6 +16,10 @@ const CREDIT_TYPES = [
 ]
 
 const STAGE_LABELS = {
+  // Internal ops stage (dashboard creates closed-won projects here). Client-safe
+  // copy rather than an omission: STAGE_LABELS falls back to `|| project.stage`,
+  // which would show the raw word "Onboarding" with no explanation.
+  'Onboarding':            "We're getting your project set up",
   'Brief Pending':         "We're waiting for your brief",
   'Brief Received':        "We're reviewing your brief",
   'Build In Progress':     "We're building your site",
@@ -33,6 +37,7 @@ const STAGE_LABELS = {
 }
 
 const STAGE_NEXT = {
+  'Onboarding':            "We'll be in touch to arrange your onboarding call",
   'Brief Pending':         "Complete your brief to get started",
   'Brief Received':        "We'll confirm your brief within 24 hours",
   'Build In Progress':     "We'll send you a preview to review",
@@ -52,7 +57,9 @@ const STAGE_NEXT = {
 const STAGE_COMPLETED = new Set(['No Longer Maintaining', 'Dead'])
 
 const PIPELINE = [
-  { label: 'Brief',  stages: ['Brief Pending', 'Brief Received'] },
+  // 'Onboarding' sits in the Brief milestone. A stage in no milestone leaves the
+  // whole pipeline with nothing active, which reads as broken rather than early.
+  { label: 'Brief',  stages: ['Onboarding', 'Brief Pending', 'Brief Received'] },
   { label: 'Build',  stages: ['Build In Progress', 'Internal QC'] },
   { label: 'Review', stages: ['Client Review', 'Revisions', 'Approved'] },
   { label: 'Live',   stages: ['Live', 'Maintenance', '30 Days Maintenance', 'GMB Setup', 'Directory Setup'] },
