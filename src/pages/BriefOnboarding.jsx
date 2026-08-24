@@ -233,8 +233,21 @@ export default function BriefOnboarding({ client, session, onComplete }) {
         legal_requirements: form.legal_requirements.trim() || null,
       }
 
-      const headers = { 'Content-Type': 'application/json' }
-      if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`
+      // The token is now REQUIRED, not opportunistic. The dashboard verifies the caller
+      // owns body.client_id as of 2026-08-24, so a submission without it 401s. The old
+      // `if (session?.access_token)` silently posted anonymously when the session had
+      // lapsed — which used to work, and would now fail with a generic error after the
+      // client had filled in the whole form. Fail early and say what to do instead; the
+      // draft is already persisted to sessionStorage/localStorage, so nothing is lost.
+      if (!session?.access_token) {
+        setError('Your session has expired. Please sign in again — your answers are saved.')
+        setSubmitting(false)
+        return
+      }
+      const headers = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      }
 
       let res
       try {

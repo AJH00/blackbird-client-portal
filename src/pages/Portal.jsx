@@ -519,9 +519,22 @@ function ApprovalSection({ client, project, onApproved }) {
     setSubmitting(true)
     setError('')
     try {
+      // The dashboard's `approve` action verifies the CALLER as of 2026-08-24: it resolves
+      // this token to a profile and refuses unless that profile's client_id owns the
+      // project. Without the header the request is anonymous and 401s, so this must ship
+      // BEFORE the dashboard-side guard, not after.
+      const token = (await supabase.auth.getSession()).data.session?.access_token
+      if (!token) {
+        setError('Your session has expired. Please sign in again to approve.')
+        setSubmitting(false)
+        return
+      }
       const r = await fetch(`${DASHBOARD_API}/api/projects`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ action: 'approve', project_id: project.id }),
       })
       const data = await r.json()
